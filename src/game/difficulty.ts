@@ -7,10 +7,10 @@ import type { SolveResult } from './humanSolver'
  * difficulty is whether advanced passes (confinement / pair locks) had to
  * run, and how often):
  *
- *   easy       : naked singles only, zero advanced rounds
- *   medium     : some advanced firings, few rounds
- *   hard       : confinement/pair-locks carry real weight
- *   extra-hard : advanced rounds dominate the solve
+ *   easy       : one advanced round required
+ *   medium     : confinement/pair-locks carry real weight
+ *   hard       : advanced rounds dominate the solve
+ *   extra-hard : the highest advanced-round rung
  */
 export function computeDifficulty(
   board: Board,
@@ -21,11 +21,12 @@ export function computeDifficulty(
   const advancedRounds = result.advancedRounds
 
   // Monotonic ladder matching the generator's acceptance rungs:
-  // 0 advanced rounds = easy, 1 = medium, 2 = hard, 3+ = extra-hard.
+  // The selectable easy tier requires one advanced round; zero-round fallbacks
+  // are still grouped into Easy, the lowest remaining label.
   let difficulty: Difficulty
-  if (advancedRounds === 0) difficulty = 'easy'
-  else if (advancedRounds === 1) difficulty = 'medium'
-  else if (advancedRounds === 2) difficulty = 'hard'
+  if (advancedRounds <= 1) difficulty = 'easy'
+  else if (advancedRounds === 2) difficulty = 'medium'
+  else if (advancedRounds === 3) difficulty = 'hard'
   else difficulty = 'extra-hard'
   return { difficulty, advancedRounds, fired }
 }

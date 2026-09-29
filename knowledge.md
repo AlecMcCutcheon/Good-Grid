@@ -41,7 +41,7 @@
 Dark UI; vivid region colors; fixed equal square cells and uniform dark gutters. Region color alone defines blobs—no outlines. Cyan is reserved for temporary notes and deduction previews; permanent elimination Xs stay white; incorrect guesses are red.
 
 ## Difficulty and verification
-Tiers use `tinyFrac`, growth `alpha`, and `minRounds` in `levelGenerator.ts`. Rung = base 0/1/2/3 for easy/medium/hard/extra-hard plus one for every three rows above size 5. Easy requires zero advanced rounds, other tiers require the full rung. Never treat `accepted=false` as a requested-tier success.
+Tiers use `tinyFrac`, growth `alpha`, and `minRounds` in `levelGenerator.ts`. The selectable rungs are base 1/2/3/4 for easy/medium/hard/extra-hard plus one for every three rows above size 5. A board with zero advanced rounds is still graded as easy for truthful fallback labeling. Never treat `accepted=false` as a requested-tier success.
 
 Seeded audits compare every deduction placement and eliminated cell to the strict unique solution, test contiguous regions, and log per-cat visible auto-X/candidate counts. Current metric is useful for regression comparisons but is not yet calibrated to human solve time. See `ALGORITHMS.md` for measured matrices and limitations.
 

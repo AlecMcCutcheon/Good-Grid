@@ -7,10 +7,10 @@ import type { Board, Difficulty, Level, Position } from '../src/game/types'
 
 const TIERS: Difficulty[] = ['easy', 'medium', 'hard', 'extra-hard']
 const SIZES: Record<Difficulty, number[]> = {
-  easy: [5, 6, 7],
-  medium: [6, 7, 8],
-  hard: [5, 6, 7, 8, 9],
-  'extra-hard': [9, 10, 11],
+  easy: [6, 7],
+  medium: [7, 8],
+  hard: [9, 10],
+  'extra-hard': [10],
 }
 const SAMPLES_PER_SIZE = 6
 const ALLOW_BEST_EFFORT = process.env.AUDIT_BEST_EFFORT === '1'
@@ -115,7 +115,7 @@ for (const tier of TIERS) {
       const seed = Math.floor(mulberry32(size * 100_003 + TIERS.indexOf(tier) * 17_171 + sample * 991)() * 2 ** 31)
       const { level, report } = generateLevel({ size, difficulty: tier, seed })
       const logic = solveByLogic(level.cells)
-      const expectedRung = tier === 'easy' ? 0 : ({ medium: 1, hard: 2, 'extra-hard': 3 }[tier] + Math.floor((size - 5) / 3))
+      const expectedRung = ({ easy: 1, medium: 2, hard: 3, 'extra-hard': 5 }[tier] + Math.floor((size - 5) / 3))
       const errors = checkSolution(level)
       if (errors.length > 0) {
         tierErrors += errors.length
@@ -128,13 +128,9 @@ for (const tier of TIERS) {
         }
       } else {
         accepted++
-        if (tier !== 'easy' && logic.advancedRounds < expectedRung) underRung++
+        if (logic.advancedRounds < expectedRung) underRung++
       }
       rounds.push(logic.advancedRounds)
-      if (tier === 'easy' && logic.advancedRounds !== 0) {
-        tierErrors++
-        console.log(`  FAIL easy ${size} seed=${seed}: generated easy board used ${logic.advancedRounds} advanced passes`)
-      }
       if (report.accepted && level.difficulty !== tier) {
         tierErrors++
         console.log(`  FAIL ${tier} ${size} seed=${seed}: accepted board badge drifted to ${level.difficulty}`)

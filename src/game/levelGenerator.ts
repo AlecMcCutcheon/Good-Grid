@@ -41,10 +41,10 @@ const TIER_PARAMS: Record<
   Difficulty,
   { tinyFrac: number; alpha: number; minRounds: number }
 > = {
-  easy: { tinyFrac: 0.85, alpha: 5, minRounds: 0 },
-  medium: { tinyFrac: 0.6, alpha: 5, minRounds: 1 },
-  hard: { tinyFrac: 0.35, alpha: 6, minRounds: 2 },
-  'extra-hard': { tinyFrac: 0.3, alpha: 7, minRounds: 3 },
+  easy: { tinyFrac: 0.6, alpha: 5, minRounds: 1 },
+  medium: { tinyFrac: 0.35, alpha: 6, minRounds: 2 },
+  hard: { tinyFrac: 0.3, alpha: 7, minRounds: 3 },
+  'extra-hard': { tinyFrac: 0.2, alpha: 8, minRounds: 5 },
 }
 
 /** If the search budget expires, retain a known-unique, logic-solvable board. */
@@ -94,7 +94,6 @@ function guaranteedFallback(size: number, seed: number): {
  * advanced elimination passes for the same label (+1 per 3 rows beyond 5).
  */
 function rungFor(tier: Difficulty, size: number): number {
-  if (tier === 'easy') return 0
   return TIER_PARAMS[tier].minRounds + Math.floor((size - 5) / 3)
 }
 
@@ -105,24 +104,22 @@ function rungFor(tier: Difficulty, size: number): number {
 // ============================================================================
 
 /**
- * Grid size per tier. The reference game's observed values (easy 6,
- * medium/hard 7, extra-hard 10) are the CENTER defaults, but size is not a
- * hard limit: generation draws from the tier's range (center ± spread),
- * and GenerateOptions.size overrides entirely.
+ * Grid size per tier. Size is not a hard limit: generation draws from the
+ * tier's range (center ± spread), and GenerateOptions.size overrides entirely.
  */
 const TIER_SIZE: Record<Difficulty, number> = {
-  easy: 6,
+  easy: 7,
   medium: 7,
-  hard: 7,
+  hard: 10,
   'extra-hard': 10,
 }
 
 /** How far size may drift from the tier default. */
 const TIER_SIZE_SPREAD: Record<Difficulty, number> = {
   easy: 1,
-  medium: 1,
-  hard: 2,
-  'extra-hard': 1,
+  medium: 2,
+  hard: 1,
+  'extra-hard': 0,
 }
 
 /** Random grid size for a tier, using the supplied seedable RNG when available. */
@@ -141,7 +138,7 @@ function gradeMatches(
 ): { ok: boolean; advancedRounds: number; rung: number } {
   const rounds = result.advancedRounds
   const rung = rungFor(tier, size)
-  const ok = tier === 'easy' ? rounds === 0 : rounds >= rung
+  const ok = rounds >= rung
   return { ok, advancedRounds: rounds, rung }
 }
 
@@ -537,15 +534,18 @@ export function generateLevel(options: GenerateOptions): {
   report: GenerationReport
 } {
 
-  const tier: Difficulty = options.difficulty ?? 'medium'
+  const tier: Difficulty = options.difficulty ?? 'easy'
   // Size defaults to a random draw around the tier's reference value;
   // explicit options.size overrides (used by tests/benchmarks).
   const size = options.size ?? randomSizeForTier(tier)
   const params = TIER_PARAMS[tier]
   const maxAttempts = options.maxAttempts ?? 200
-  // XH on 11x11 has an unusually low carve hit-rate; give it longer before
-  // choosing a truthful lower-tier fallback rather than blocking indefinitely.
-  const timeBudgetMs = options.timeBudgetMs ?? (tier === 'extra-hard' && size >= 11 ? 4000 : 1500)
+  // Larger Hard and Extra Hard boards have lower carve hit-rates; give them
+  // longer before choosing a truthful lower-tier fallback.
+  const timeBudgetMs = options.timeBudgetMs ?? (
+    tier === 'extra-hard' && size >= 11 ? 6000 :
+      (tier === 'hard' || tier === 'extra-hard') && size >= 10 ? 4000 : 2000
+  )
   const seed = options.seed ?? Math.floor(Math.random() * 2 ** 31)
 
   const attempts: GenerationAttempt[] = []
@@ -707,16 +707,13 @@ export function generateLevel(options: GenerateOptions): {
     }
 
     // Do not silently relabel a near-miss as the requested tier. A board is
-    // accepted only when its measured chain reaches the full size-adjusted
-    // rung (easy requires exactly zero advanced rounds).
-    const meetsTier = tier === 'easy'
-      ? grade.advancedRounds === 0
-      : grade.advancedRounds >= rung
+    // accepted only when its measured chain reaches the full size-adjusted rung.
+    const meetsTier = grade.advancedRounds >= rung
     if (!meetsTier) {
       attempts.push({
         index: attempt,
         ok: false,
-        reason: `graded ${grade.advancedRounds} adv rounds (needs ${tier === 'easy' ? 'exactly 0' : `≥${rung}`})`,
+        reason: `graded ${grade.advancedRounds} adv rounds (needs ≥${rung})`,
         ms: performance.now() - attemptStart,
       })
       continue

@@ -47,12 +47,10 @@ Measured by deduction-solvability unless noted. "Freebie" = 1-cell region.
 | D4 | Tier controls singleton fraction, growth bias, and minimum size-adjusted advanced-pass rung | Across 114 seeded requests (6 per tier/size): all accepted at their rung; no invalid solution, non-unique board, or solver trace disagreement | KEEP |
 | D5 | Player-visible trace after each correct cat | Audit records automatic-X cells and still-legal cells: roughly 16–84 automatic Xs and 5–31 remaining legal cells per placement, across sampled sizes/tiers | Useful progress signal, not alone a difficulty grade |
 
-Difficulty acceptance is strict: easy requires 0 advanced elimination passes;
-medium/hard/extra-hard require at least their base rung 1/2/3 plus one per
-three rows above size 5. Accepted boards are never silently accepted below the
-requested rung. If the budget expires, a fallback is returned only after exact
-uniqueness and deduction validation and its badge is derived from its measured
-logic grade.
+Difficulty acceptance is strict: selectable easy/medium/hard/extra-hard
+require at least their base rung 1/2/3/4 plus one perthree rows above size 5. Accepted boards are never silently accepted below the requested rung. If the
+budget expires, a fallback is returned only after exact uniqueness and
+deduction validation and its badge is derived from its measured logic grade.
 
 ## E. Generation search
 

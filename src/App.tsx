@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Difficulty, GenerationReport, Level, Position } from './game/types'
 import { generateLevel } from './game/levelGenerator'
-import { createPlayerProfile, levelSeedFor, levelSizeFor, parsePlayerProfile, PROFILE_STORAGE_KEY, type PlayerProfile } from './game/playerProfile'
+import { createPlayerProfile, levelSeedFor, levelSizeFor, parsePlayerProfile, PROFILE_STORAGE_KEY, LEGACY_PROFILE_STORAGE_KEY, type PlayerProfile } from './game/playerProfile'
 import { PALETTES, DEFAULT_PALETTE_INDEX, buildRegionColors } from './game/palettes'
 import { nextHint, type HintStep } from './game/hints'
 import { buildWalkthrough } from './game/walkthrough'
@@ -20,7 +20,9 @@ const MAX_HEARTS = 3
 function readSavedProfile(): PlayerProfile {
   try {
     const raw = localStorage.getItem(PROFILE_STORAGE_KEY)
-    const parsed = raw ? parsePlayerProfile(JSON.parse(raw)) : null
+    const legacyRaw = raw ? null : localStorage.getItem(LEGACY_PROFILE_STORAGE_KEY)
+    const savedProfile = raw ?? legacyRaw
+    const parsed = savedProfile ? parsePlayerProfile(JSON.parse(savedProfile)) : null
     return parsed ?? createPlayerProfile()
   } catch {
     return createPlayerProfile()
