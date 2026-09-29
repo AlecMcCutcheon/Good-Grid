@@ -1,4 +1,11 @@
 node_modules/
 dist/
 .agents/
+/AGENTS.md
+/ALGORITHMS.md
+/knowledge.md
+*PLAN*.md
+*plan*.md
+*NOTES*.md
+*notes*.md
 tsconfig.tsbuildinfo

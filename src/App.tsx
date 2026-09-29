@@ -115,6 +115,9 @@ export default function App() {
   }, [activeHint, activeHintRevealCount])
 
   const startLevel = useCallback((lvl: Level, rep: GenerationReport | null) => {
+    if (revealWaveTimer.current !== null) window.clearTimeout(revealWaveTimer.current)
+    revealWaveTimer.current = null
+    setRevealWave(null)
     setLevelEpoch((epoch) => epoch + 1)
     setLevel(lvl)
     if (rep !== null) setReport(rep)
@@ -130,6 +133,10 @@ export default function App() {
     setWalkthroughIndex(null)
     setWalkthroughRevealCount(0)
     setShowSolution(false)
+  }, [])
+
+  useEffect(() => () => {
+    if (revealWaveTimer.current !== null) window.clearTimeout(revealWaveTimer.current)
   }, [])
 
   useEffect(() => {
@@ -533,7 +540,7 @@ export default function App() {
         temporaryMarkCount={temporaryMarks.size + temporaryCats.size}
         onClearTemporaryMarks={clearTemporaryMarks}
         onUndo={undo}
-        undoDisabled={history.length === 0 || won || hearts <= 0}
+        undoDisabled={history.length === 0 || won}
         onHint={hint}
         hintDisabled={activeHint !== null || won || hearts <= 0}
       />
@@ -586,7 +593,7 @@ export default function App() {
             onDoubleClick={handleDoubleClick}
           />
           {won && <div className="win-overlay win-overlay--win">🎉 Puzzle complete! Next puzzle loading…</div>}
-          {gameOver && !won && <div className="win-overlay win-overlay--gameover">💔 Out of hearts. Restart this puzzle to try again.</div>}
+          {gameOver && !won && <div className="win-overlay win-overlay--gameover" style={{ pointerEvents: 'none' }}>💔 Out of hearts. Restart this puzzle to try again.</div>}
         </div>
 
         {devMode && <DevPanel

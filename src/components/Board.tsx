@@ -3,8 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Board as BoardModel, Position, RegionPalette } from '../game/types'
 import { buildRegionColors } from '../game/palettes'
 import { getAutoFilledPositions } from '../game/rules'
-import { Cell, REVEAL_TOTAL_MS, type CellState } from './Cell'
-import type { CSSProperties } from 'react'
+import { Cell, type CellState } from './Cell'
 import type { HintStep } from '../game/hints'
 import type { WalkthroughStep } from '../game/walkthrough'
 import { chooseMarkDragAxis, getMarkDragLine, getRegionPositions, type MarkDragAxis } from '../game/markDrag'
@@ -45,38 +44,12 @@ const key = (row: number, col: number) => `${row},${col}`
 const includesPosition = (items: Position[], row: number, col: number) =>
   items.some((p) => p.row === row && p.col === col)
 
-/** One-based sequential reveal indices for a batch of positions (order they
- * should appear, e.g. along a drag). Cells absent from the batch get 0. */
+/** One-based sequential reveal indices for a batch of positions.
+ * Cells absent from the batch get 0. */
 function buildRevealOrder(positions: Position[]): Map<string, number> {
   const order = new Map<string, number>()
   positions.forEach((pos, index) => order.set(key(pos.row, pos.col), index + 1))
   return order
-}
-
-/** Stroke origin for a two-stroke X based on drag direction. The first
- * stroke always runs from the corner closest to where selection began. */
-function strokeOriginFor(start: Position, pos: Position): string {
-  const verticalFirst = Math.abs(pos.row - start.row) >= Math.abs(pos.col - start.col)
-  if (verticalFirst) {
-    return pos.row < start.row ? 'top' : 'bottom'
-  }
-  return pos.col < start.col ? 'left' : 'right'
-}
-
-/** Style driving the stroke draw direction of an X in a given cell. */
-function xDrawStyle(origin: string, delayMs: number): CSSProperties {
-  const map: Record<string, [string, string]> = {
-    top: ['var(--from-top, 1)', 'var(--from-top, 1)'],
-    bottom: ['var(--from-bottom, 1)', 'var(--from-bottom, 1)'],
-    left: ['var(--from-left, 1)', 'var(--from-left, 1)'],
-    right: ['var(--from-right, 1)', 'var(--from-right, 1)'],
-  }
-  const [first, second] = map[origin] ?? map.right
-  return {
-    '--draw-1': first,
-    '--draw-2': second,
-    '--stroke-delay': `${delayMs}ms`,
-  } as CSSProperties
 }
 
 export function Board({
@@ -102,43 +75,37 @@ export function Board({
   // Walkthrough eliminations are already staged in visibleXs. Never render
   // the full step.eliminate list directly or it bypasses the reveal sequence.
   const visibleEliminateSet = walkthroughStep ? [] : visibleHintEliminate
+  const focusKeys = new Set(focusSet.map((pos) => key(pos.row, pos.col)))
+  const eliminateKeys = new Set(visibleEliminateSet.map((pos) => key(pos.row, pos.col)))
   const placement = walkthroughStep?.placement ?? hint?.placement
   const focusRow = walkthroughStep?.focusRow ?? hint?.focusRow
   const focusColumn = walkthroughStep?.focusColumn ?? hint?.focusColumn
   const isWalkthrough = walkthroughStep !== null
   const [dragPreview, setDragPreview] = useState<Position[]>([])
-  const [lastCommittedDrag, setLastCommittedDrag] = useState<Position[] | null>(null)
-  const dragStartRef = useRef<Position | null>(null)
+  const previewKeys = new Set(dragPreview.map((pos) => key(pos.row, pos.col)))
   const message = walkthroughStep?.message ?? hint?.message
   const title = walkthroughStep?.title ?? hint?.title
   const hintRevealOrder = buildRevealOrder(visibleHintEliminate)
   const hintRevealTotal = visibleEliminateSet.length || 1
   const walkthroughRevealOrder = buildRevealOrder(walkthroughStep?.visibleXs ?? [])
   const walkthroughRevealTotal = (walkthroughStep?.visibleXs.length ?? 0) || 1
-  const dragRevealOrder = buildRevealOrder(lastCommittedDrag ?? [])
-  const dragRevealTotal = (lastCommittedDrag?.length ?? 0) || 1
   const waveRevealOrder = buildRevealOrder(revealWave?.positions ?? [])
   const waveRevealTotal = (revealWave?.positions.length ?? 0) || 1
-  const waveOrigin = revealWave?.origin ?? null
 
-  /** Reveal index for a cell: drag batches, hint/walkthrough staging, then
-   * auto-fill waves take priority in that order. */
+  /** Reveal index for staged hints, walkthroughs, and auto-fill waves. */
   const revealIndexFor = (k: string) => {
-    if (dragRevealOrder.has(k)) return dragRevealOrder.get(k) ?? 0
     if (isWalkthrough) return walkthroughRevealOrder.get(k) ?? 0
     if (hint) return hintRevealOrder.get(k) ?? 0
-    if (waveRevealOrder.has(k)) return waveRevealOrder.get(k) ?? 0
-    return 0
+    return waveRevealOrder.get(k) ?? 0
   }
-  const revealTotalFor = (k: string) => {
-    if (dragRevealOrder.has(k)) return dragRevealTotal
+  const revealTotalFor = () => {
     if (isWalkthrough) return walkthroughRevealTotal
     if (hint) return hintRevealTotal
-    if (waveRevealOrder.has(k)) return waveRevealTotal
-    return 1
+    return waveRevealTotal
   }
   const boardRef = useRef<HTMLDivElement>(null)
   const suppressNextClick = useRef(false)
+  const suppressClickTimer = useRef<number | null>(null)
   const suppressNextContextMenu = useRef(false)
   const dragRef = useRef<{
     start: Position
@@ -194,24 +161,27 @@ export function Board({
       }
       dragRef.current = null
       setDragPreview([])
-      if (drag.regionMode) suppressNextClick.current = false
+      if (suppressNextClick.current) {
+        if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
+        suppressClickTimer.current = window.setTimeout(() => {
+          suppressNextClick.current = false
+          suppressClickTimer.current = null
+        }, 500)
+      }
       if (!drag.regionMode && !drag.moved) return
       if (!drag.regionMode && !drag.axis) return
       if (drag.regionMode) {
-        dragStartRef.current = drag.start
-        setLastCommittedDrag(getRegionPositions(board, drag.start))
         onMarkDrag(getRegionPositions(board, drag.start), drag.temporary, drag.erase)
       } else if (drag.axis) {
-        const line = getMarkDragLine(drag.start, drag.current, drag.axis)
-        dragStartRef.current = drag.start
-        setLastCommittedDrag(line)
-        onMarkDrag(line, drag.temporary, drag.erase)
+        onMarkDrag(getMarkDragLine(drag.start, drag.current, drag.axis), drag.temporary, drag.erase)
       }
     }
     const cancelDrag = (event: PointerEvent) => {
       if (!dragRef.current || event.pointerId !== dragRef.current.pointerId) return
       dragRef.current = null
       suppressNextClick.current = false
+      if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
+      suppressClickTimer.current = null
       suppressNextContextMenu.current = false
       setDragPreview([])
     }
@@ -222,6 +192,7 @@ export function Board({
       window.removeEventListener('pointermove', moveDrag)
       window.removeEventListener('pointerup', finishDrag)
       window.removeEventListener('pointercancel', cancelDrag)
+      if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
     }
   }, [board, onMarkDrag])
 
@@ -229,6 +200,18 @@ export function Board({
     if (event.button !== 0 && event.button !== 2) return
     const start = positionFromTarget(event.target)
     if (!start) return
+    if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
+    suppressClickTimer.current = null
+    suppressNextClick.current = false
+    suppressNextContextMenu.current = false
+    const cellElement = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('.cell')
+      : null
+    try {
+      cellElement?.setPointerCapture(event.pointerId)
+    } catch {
+      // The window listeners remain as a fallback if capture is unavailable.
+    }
     const temporary = event.button === 2
     const erase = temporary ? temporaryMarks.has(key(start.row, start.col)) : marks.has(key(start.row, start.col))
     dragRef.current = {
@@ -268,6 +251,8 @@ export function Board({
         onClickCapture={(event) => {
           if (!suppressNextClick.current) return
           suppressNextClick.current = false
+          if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
+          suppressClickTimer.current = null
           event.preventDefault()
           event.stopPropagation()
         }}
@@ -297,9 +282,9 @@ export function Board({
             (Math.abs(cat.row - row) <= 1 && Math.abs(cat.col - col) <= 1),
           )
           const temporaryCatMark = temporaryCatXSet.has(k) && state === 'empty'
-          const focused = includesPosition(focusSet, row, col)
+          const focused = focusKeys.has(k)
           const hintPlacement = placement?.row === row && placement.col === col
-          const isDragPreview = dragPreview.some((pos) => pos.row === row && pos.col === col)
+          const isDragPreview = previewKeys.has(k)
           const dragMode = dragRef.current
           const dragPreviewType = isDragPreview && dragMode
             ? dragMode.erase
@@ -307,20 +292,9 @@ export function Board({
               : dragMode.temporary ? 'temporary' : 'mark'
             : null
 
-          // Sequential reveal state: hint previews, walkthrough staging, and
-          // just-committed drags each animate along their selection order.
-          const inDragBatch = dragRevealOrder.has(k)
+          // Hints, walkthroughs, and auto-fill keep their staged reveal timing.
           const revealIndex = revealIndexFor(k)
-          const revealTotal = revealTotalFor(k)
-          const strokeOrigin = inDragBatch && lastCommittedDrag && dragStartRef.current
-            ? strokeOriginFor(dragStartRef.current, { row, col })
-            : waveOrigin && waveRevealOrder.has(k)
-              ? strokeOriginFor(waveOrigin, { row, col })
-              : 'right'
-          const stepMs = Math.max(60, Math.round(REVEAL_TOTAL_MS / Math.max(1, revealTotal)))
-          const xDrawVars = inDragBatch || (waveOrigin && waveRevealOrder.has(k))
-            ? xDrawStyle(strokeOrigin, (revealIndex - 1) * stepMs)
-            : undefined
+          const revealTotal = revealTotalFor()
 
           return (
             <Cell
@@ -331,8 +305,8 @@ export function Board({
               temporaryCat={temporaryCat}
               temporaryCatMark={temporaryCatMark}
               temporaryCatConflict={temporaryCatConflict}
-              previewX={previewX || includesPosition(visibleEliminateSet, row, col)}
-              hintPreviewX={!isWalkthrough && includesPosition(visibleEliminateSet, row, col)}
+              previewX={previewX || eliminateKeys.has(k)}
+              hintPreviewX={!isWalkthrough && eliminateKeys.has(k)}
               walkthroughPreviewX={isWalkthrough && previewX}
               dragPreview={dragPreviewType}
               demoCat={demoCat}
@@ -343,7 +317,6 @@ export function Board({
               showRegionId={showRegionIds}
               revealIndex={revealIndex}
               revealTotal={revealTotal}
-              xDrawVars={xDrawVars}
               colors={{
                 fill: colors.fills[cell.region % colors.fills.length],
                 border: colors.borders[cell.region % colors.borders.length],

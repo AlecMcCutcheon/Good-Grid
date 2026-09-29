@@ -24,7 +24,6 @@ type Props = {
   showRegionId: boolean
   revealIndex: number
   revealTotal: number
-  xDrawVars?: CSSProperties
   colors: { fill: string; border: string; text: string }
   onSingleClick: () => void
   onDoubleClick: () => void
@@ -55,7 +54,6 @@ export function Cell({
   showRegionId,
   revealIndex,
   revealTotal,
-  xDrawVars,
   colors,
   onSingleClick,
   onDoubleClick,
@@ -108,16 +106,15 @@ export function Cell({
               ? 'temporary note'
               : 'empty'
 
-  // Sequential reveal timing: scaled so N items draw over REVEAL_TOTAL_MS total.
-  const delay = revealTotal > 1
-    ? Math.round((revealIndex * REVEAL_TOTAL_MS) / revealTotal)
+  // Sequential reveal timing: spread the short pop across the batch.
+  const popDelay = revealTotal > 1
+    ? Math.round(((revealIndex - 1) * REVEAL_TOTAL_MS) / (revealTotal - 1))
     : 0
-  const popStep = Math.max(80, Math.round(REVEAL_TOTAL_MS / Math.max(1, revealTotal)))
   const revealStyle = {
-    '--reveal-delay': `${delay}ms`,
-    '--pop-delay': `${revealIndex * popStep}ms`,
-    ...xDrawVars,
+    '--pop-delay': `${popDelay}ms`,
   } as CSSProperties
+  const revealX = revealIndex > 0
+  const glyphClass = revealX ? 'cell__glyph--pop' : ''
 
   return (
     <button
@@ -140,24 +137,21 @@ export function Cell({
       {temporaryCat && state !== 'cat' && <TemporarySmileIcon className="cell__temporary-cat-glyph" />}
       {state !== 'empty' && (
         <span
-          className={`cell__glyph cell__glyph--${state} cell__glyph--pop`}
-          style={revealStyle}
+          className={`cell__glyph cell__glyph--${state} ${glyphClass}`}
+          style={revealX ? revealStyle : undefined}
         >
           {state === 'cat'
             ? <SmileIcon className="cell__cat-icon" />
             : state === 'miss'
               ? <FrownIcon className="cell__miss-icon" />
-              : <XMarkIcon className="cell__x-icon cell__x-icon--draw" />}
+              : <XMarkIcon className="cell__x-icon" />}
         </span>
       )}
       {(temporary || temporaryCatMark) && state === 'empty' && !temporaryCat && (
-        <XMarkIcon className="cell__temporary-glyph cell__x-icon--draw" style={revealStyle} />
+        <XMarkIcon className="cell__temporary-glyph" />
       )}
       {previewX && state !== 'x' && state !== 'cat' && state !== 'miss' && (
-        <XMarkIcon
-          className={`cell__preview-glyph${hintPreviewX || walkthroughPreviewX ? ' cell__x-icon--draw' : ''}`}
-          style={revealStyle}
-        />
+        <XMarkIcon className={`cell__preview-glyph${revealX ? ' cell__preview-glyph--reveal' : ''}`} />
       )}
       {demoCat && state !== 'cat' && <SmileIcon className="cell__demo-glyph" />}
       {showRegionId && <span className="cell__region-id">{cell.region}</span>}

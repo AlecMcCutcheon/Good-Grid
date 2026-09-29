@@ -7,12 +7,12 @@ import type { Board, Difficulty, Level, Position } from '../src/game/types'
 
 const TIERS: Difficulty[] = ['easy', 'medium', 'hard', 'extra-hard']
 const SIZES: Record<Difficulty, number[]> = {
-  easy: [6, 7],
-  medium: [7, 8],
-  hard: [9, 10],
-  'extra-hard': [10],
+  easy: [6, 7, 8],
+  medium: [7, 8, 9],
+  hard: [9, 10, 11],
+  'extra-hard': [11],
 }
-const SAMPLES_PER_SIZE = 6
+const SAMPLES_PER_SIZE = Number(process.env.AUDIT_SAMPLES ?? 6)
 const ALLOW_BEST_EFFORT = process.env.AUDIT_BEST_EFFORT === '1'
 
 function samePositions(a: Position[], b: Position[]): boolean {

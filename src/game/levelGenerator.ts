@@ -43,8 +43,10 @@ const TIER_PARAMS: Record<
 > = {
   easy: { tinyFrac: 0.6, alpha: 5, minRounds: 1 },
   medium: { tinyFrac: 0.35, alpha: 6, minRounds: 2 },
-  hard: { tinyFrac: 0.3, alpha: 7, minRounds: 3 },
-  'extra-hard': { tinyFrac: 0.2, alpha: 8, minRounds: 5 },
+  hard: { tinyFrac: 0.35, alpha: 7, minRounds: 3 },
+  // XH boards grow with enough singletons to carve reliably; harden then
+  // pushes the solve up to the strict rung while preserving solvability.
+  'extra-hard': { tinyFrac: 0.35, alpha: 8, minRounds: 5 },
 }
 
 /** If the search budget expires, retain a known-unique, logic-solvable board. */
@@ -560,7 +562,7 @@ export function generateLevel(options: GenerateOptions): {
     // ---- SEED + GROW: a POOL of candidates this attempt (candidate-pool
     // strategy — replaces one-candidate-per-attempt, which wasted most
     // grown boards on carve/grade failures).
-    const POOL = 3
+    const POOL = size >= 10 ? 4 : 3
     interface Candidate {
       board: Board
       logic: SolveResult

@@ -369,36 +369,8 @@ body {
   pointer-events: none;
 }
 
-/* Two-stroke X drawing: each diagonal reveals along its path length. When a
-   draw animation is applied, --draw starts at 0 and animates to the target
-   (1 by default, or a direction-specific partial). */
-.x-mark__stroke {
-  stroke-dashoffset: calc(1 - var(--draw, 1));
-}
-
-.x-mark__stroke--1 {
-  --draw: var(--draw-1, 1);
-}
-
-.x-mark__stroke--2 {
-  --draw: var(--draw-2, 1);
-}
-
-@keyframes x-stroke-draw {
-  from { stroke-dashoffset: 1; }
-  to { stroke-dashoffset: calc(1 - var(--draw, 1)); }
-}
-
-.cell__x-icon--draw .x-mark__stroke {
-  animation: x-stroke-draw 0.16s ease-out forwards;
-  animation-delay: calc(var(--stroke-delay, 0ms) + var(--reveal-delay, 0ms));
-  stroke-dashoffset: 1; /* hidden until its delayed draw begins */
-}
-
-/* Second stroke starts after the first completes. */
-.cell__x-icon--draw .x-mark__stroke--2 {
-  animation-delay: calc(var(--stroke-delay, 0ms) + var(--reveal-delay, 0ms) + 0.16s);
-}
+/* Reveal X marks simply; avoid direction-dependent SVG stroke animation so
+   everyday clicks and drags stay responsive. */
 
 @keyframes glyph-pop {
   0% { transform: scale(0.55); }
@@ -409,8 +381,11 @@ body {
 .cell__glyph--pop {
   animation: glyph-pop 0.22s ease-out;
   animation-delay: var(--pop-delay, 0ms);
-  opacity: 0;
-  animation-fill-mode: backwards;
+}
+
+.cell__preview-glyph--reveal {
+  animation: glyph-pop 0.22s ease-out;
+  animation-delay: var(--pop-delay, 0ms);
 }
 
 .cell__glyph--pop > * {
@@ -903,6 +878,9 @@ select.select--difficulty {
   font: inherit;
   font-size: inherit; /* 1em = one cell width, inherited from .board */
   overflow: hidden; /* glyph can never spill or stretch the track */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
   transition:
     filter 0.12s ease,
     transform 0.06s ease;

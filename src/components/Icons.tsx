@@ -1,41 +1,8 @@
-import type { CSSProperties } from 'react'
-
 type IconProps = {
   className?: string
 }
 
-/** Full-size X mark. Supports two-stroke drawing via CSS variables: the first
- * diagonal uses --draw-1 (a length fraction), the second uses --draw-2. Both
- * default to 1 so the icon renders fully drawn when unanimated. */
-export function XMarkIcon({ className, style }: IconProps & { style?: CSSProperties }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true" style={style}>
-      <path
-        className="x-mark__stroke x-mark__stroke--1"
-        d="M4.5 4.5 19.5 19.5"
-        stroke="currentColor"
-        strokeWidth="2.8"
-        strokeLinecap="round"
-        pathLength={1}
-        strokeDasharray="1"
-        style={{ ['--draw' as string]: 'var(--draw-1, 1)' }}
-      />
-      <path
-        className="x-mark__stroke x-mark__stroke--2"
-        d="M19.5 4.5 4.5 19.5"
-        stroke="currentColor"
-        strokeWidth="2.8"
-        strokeLinecap="round"
-        pathLength={1}
-        strokeDasharray="1"
-        style={{ ['--draw' as string]: 'var(--draw-2, 1)' }}
-      />
-    </svg>
-  )
-}
-
-/** Legacy one-piece X kept for tiny decorative uses. */
-export function XMarkSimpleIcon({ className }: IconProps) {
+export function XMarkIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="m3.5 3.5 17 17m0-17-17 17" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
