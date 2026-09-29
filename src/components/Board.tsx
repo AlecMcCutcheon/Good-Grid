@@ -2,19 +2,26 @@ import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Board as BoardModel, Position, RegionPalette } from '../game/types'
 import { buildRegionColors } from '../game/palettes'
-import { getAutoFilledPositions } from '../game/rules'
-import { Cell, type CellState } from './Cell'
+import { getAutoFilledPositions, orderPositionsRadially } from '../game/rules'
+import { Cell, revealPositionDelayMs, type CellState } from './Cell'
 import type { HintStep } from '../game/hints'
 import type { WalkthroughStep } from '../game/walkthrough'
 import { chooseMarkDragAxis, getMarkDragLine, getRegionPositions, type MarkDragAxis } from '../game/markDrag'
 
 type RevealWave = { origin: Position; positions: Position[]; nonce: number }
+type LevelTransition = { origin: Position; nonce: number }
 
 type Props = {
   board: BoardModel
   cats: Position[]
   marks: Set<string>
   revealWave?: RevealWave | null
+  temporaryCatWave?: RevealWave | null
+  temporaryCatWaveIndex?: number
+  levelTransition?: LevelTransition | null
+  transitionNonce?: number | null
+  transitionOrigin?: Position | null
+  revealWaveIndex?: number
   temporaryMarks: Set<string>
   temporaryCats: Set<string>
   misses: Set<string>
@@ -53,7 +60,7 @@ function buildRevealOrder(positions: Position[]): Map<string, number> {
 }
 
 export function Board({
-  board, cats, marks, revealWave, temporaryMarks, temporaryCats, misses, hint, visibleHintEliminate,
+  board, cats, marks, revealWave, temporaryCatWave, temporaryCatWaveIndex: currentTemporaryCatWaveIndex = 0, levelTransition, transitionNonce: externalTransitionNonce, transitionOrigin: externalTransitionOrigin, revealWaveIndex = 0, temporaryMarks, temporaryCats, misses, hint, visibleHintEliminate,
   hintRevealComplete, walkthroughReady, walkthroughStep, walkthroughIndex, walkthroughCount, palette, showRegionIds, win,
   onSingleClick, onDoubleClick, onTemporaryClick, onTemporaryCatClick, onMarkDrag, onApplyHint, onDismissHint,
   onNextWalkthrough, onPreviousWalkthrough, onCloseWalkthrough,
@@ -63,14 +70,14 @@ export function Board({
   const placedCats = cats
   const colors = buildRegionColors(palette, size)
   const overlayCats = walkthroughStep?.visibleCats ?? []
-  const exampleXSet = new Set((walkthroughStep?.visibleXs ?? []).map((p) => key(p.row, p.col)))
   const temporaryCatXSet = new Set<string>()
   for (const catKey of temporaryCats) {
     const [row, col] = catKey.split(',').map(Number)
-    for (const pos of getAutoFilledPositions(board, { row, col })) {
-      temporaryCatXSet.add(key(pos.row, pos.col))
+    for (const position of getAutoFilledPositions(board, { row, col })) {
+      temporaryCatXSet.add(key(position.row, position.col))
     }
   }
+  const exampleXSet = new Set((walkthroughStep?.visibleXs ?? []).map((p) => key(p.row, p.col)))
   const focusSet = walkthroughStep?.focus ?? hint?.focus ?? []
   // Walkthrough eliminations are already staged in visibleXs. Never render
   // the full step.eliminate list directly or it bypasses the reveal sequence.
@@ -85,12 +92,22 @@ export function Board({
   const previewKeys = new Set(dragPreview.map((pos) => key(pos.row, pos.col)))
   const message = walkthroughStep?.message ?? hint?.message
   const title = walkthroughStep?.title ?? hint?.title
-  const hintRevealOrder = buildRevealOrder(visibleHintEliminate)
-  const hintRevealTotal = visibleEliminateSet.length || 1
-  const walkthroughRevealOrder = buildRevealOrder(walkthroughStep?.visibleXs ?? [])
-  const walkthroughRevealTotal = (walkthroughStep?.visibleXs.length ?? 0) || 1
-  const waveRevealOrder = buildRevealOrder(revealWave?.positions ?? [])
-  const waveRevealTotal = (revealWave?.positions.length ?? 0) || 1
+  const hintRevealOrder = buildRevealOrder(hint?.eliminate ?? [])
+  const walkthroughRevealOrder = buildRevealOrder(walkthroughStep?.addedXs ?? [])
+  const wavePositions = revealWave ? orderPositionsRadially(revealWave.positions, revealWave.origin) : []
+  const waveRevealOrder = buildRevealOrder(wavePositions)
+  const waveRevealTotal = wavePositions.length || 1
+  const temporaryCatWavePositions = temporaryCatWave
+    ? orderPositionsRadially(temporaryCatWave.positions, temporaryCatWave.origin)
+    : []
+  const temporaryCatRevealOrder = buildRevealOrder(temporaryCatWavePositions)
+  const activeTransitionOrigin = levelTransition?.origin ?? externalTransitionOrigin ?? null
+  const transitionPositions = activeTransitionOrigin
+    ? orderPositionsRadially(board.flat().map(({ row, col }) => ({ row, col })), activeTransitionOrigin)
+    : []
+  const transitionOrder = buildRevealOrder(transitionPositions)
+  const transitionTotal = transitionPositions.length || 1
+  const transitionKey = levelTransition?.nonce ?? externalTransitionNonce ?? null
 
   /** Reveal index for staged hints, walkthroughs, and auto-fill waves. */
   const revealIndexFor = (k: string) => {
@@ -99,14 +116,15 @@ export function Board({
     return waveRevealOrder.get(k) ?? 0
   }
   const revealTotalFor = () => {
-    if (isWalkthrough) return walkthroughRevealTotal
-    if (hint) return hintRevealTotal
+    // Hints and walkthroughs reveal one item per shared step interval; their
+    // staged timer supplies the delay, while each mark uses the same pop style.
+    if (isWalkthrough || hint) return 1
     return waveRevealTotal
   }
   const boardRef = useRef<HTMLDivElement>(null)
   const suppressNextClick = useRef(false)
   const suppressClickTimer = useRef<number | null>(null)
-  const suppressNextContextMenu = useRef(false)
+  const lastTemporaryRightClick = useRef<{ key: string; time: number } | null>(null)
   const dragRef = useRef<{
     start: Position
     current: Position
@@ -141,24 +159,28 @@ export function Board({
       if (!drag.moved) {
         drag.moved = true
         if (!drag.temporary) suppressNextClick.current = true
-        if (drag.temporary) suppressNextContextMenu.current = true
-      }
-      if (current.row === drag.current.row && current.col === drag.current.col && axis === drag.axis) return
-      drag.axis = axis
-      drag.current = current
-      setDragPreview(axis ? getMarkDragLine(drag.start, current, axis) : [drag.start])
+      }        if (current.row === drag.current.row && current.col === drag.current.col && axis === drag.axis) return
+        drag.axis = axis
+        drag.current = current
+        setDragPreview(axis
+          ? getMarkDragLine(drag.start, current, axis)
+          : [drag.start])
     }
     const finishDrag = (event: PointerEvent) => {
       const drag = dragRef.current
       if (!drag || event.pointerId !== drag.pointerId) return
+      const movedPastThreshold = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 18
+      if (movedPastThreshold) drag.moved = true
       const pointerUpCell = positionFromTarget(document.elementFromPoint(event.clientX, event.clientY))
-      if (!drag.regionMode && drag.moved && pointerUpCell) {
+      if (!drag.regionMode && pointerUpCell) {
         const axis = drag.axis ?? chooseMarkDragAxis(drag.start, pointerUpCell)
         if (axis) {
           drag.axis = axis
           drag.current = pointerUpCell
         }
       }
+      const finalDrag = { ...drag }
+      if (!finalDrag.temporary && finalDrag.moved) suppressNextClick.current = true
       dragRef.current = null
       setDragPreview([])
       if (suppressNextClick.current) {
@@ -168,12 +190,30 @@ export function Board({
           suppressClickTimer.current = null
         }, 500)
       }
-      if (!drag.regionMode && !drag.moved) return
-      if (!drag.regionMode && !drag.axis) return
-      if (drag.regionMode) {
-        onMarkDrag(getRegionPositions(board, drag.start), drag.temporary, drag.erase)
-      } else if (drag.axis) {
-        onMarkDrag(getMarkDragLine(drag.start, drag.current, drag.axis), drag.temporary, drag.erase)
+      if (!finalDrag.regionMode && !finalDrag.moved) {
+        if (finalDrag.temporary) {
+          const currentKey = key(finalDrag.start.row, finalDrag.start.col)
+          const now = Date.now()
+          const previous = lastTemporaryRightClick.current
+          if (previous?.key === currentKey && now - previous.time <= 450) {
+            lastTemporaryRightClick.current = null
+            onTemporaryCatClick(finalDrag.start.row, finalDrag.start.col)
+          } else {
+            lastTemporaryRightClick.current = { key: currentKey, time: now }
+            onTemporaryClick(finalDrag.start.row, finalDrag.start.col)
+          }
+        }
+        return
+      }
+      if (!finalDrag.regionMode && !finalDrag.axis) {
+        lastTemporaryRightClick.current = null
+        return
+      }
+      if (finalDrag.temporary) lastTemporaryRightClick.current = null
+      if (finalDrag.regionMode) {
+        onMarkDrag(getRegionPositions(board, finalDrag.start), finalDrag.temporary, finalDrag.erase)
+      } else if (finalDrag.axis) {
+        onMarkDrag(getMarkDragLine(finalDrag.start, finalDrag.current, finalDrag.axis), finalDrag.temporary, finalDrag.erase)
       }
     }
     const cancelDrag = (event: PointerEvent) => {
@@ -182,7 +222,7 @@ export function Board({
       suppressNextClick.current = false
       if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
       suppressClickTimer.current = null
-      suppressNextContextMenu.current = false
+      lastTemporaryRightClick.current = null
       setDragPreview([])
     }
     window.addEventListener('pointermove', moveDrag)
@@ -194,7 +234,7 @@ export function Board({
       window.removeEventListener('pointercancel', cancelDrag)
       if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
     }
-  }, [board, onMarkDrag])
+  }, [board, onMarkDrag, onTemporaryClick, onTemporaryCatClick])
 
   const handleBoardPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 2) return
@@ -203,7 +243,7 @@ export function Board({
     if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
     suppressClickTimer.current = null
     suppressNextClick.current = false
-    suppressNextContextMenu.current = false
+    if (event.button === 0) lastTemporaryRightClick.current = null
     const cellElement = event.target instanceof Element
       ? event.target.closest<HTMLElement>('.cell')
       : null
@@ -213,13 +253,13 @@ export function Board({
       // The window listeners remain as a fallback if capture is unavailable.
     }
     const temporary = event.button === 2
-    const erase = temporary ? temporaryMarks.has(key(start.row, start.col)) : marks.has(key(start.row, start.col))
+    const hasStartMark = (temporary ? temporaryMarks : marks).has(key(start.row, start.col))
     dragRef.current = {
       start,
       current: start,
       axis: null,
       temporary,
-      erase,
+      erase: hasStartMark,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
@@ -257,14 +297,9 @@ export function Board({
           event.stopPropagation()
         }}
         onContextMenuCapture={(event) => {
-          if (suppressNextContextMenu.current) {
-            suppressNextContextMenu.current = false
-            event.preventDefault()
-            event.stopPropagation()
-          }
-        }}
-        onContextMenu={(event) => {
-          if (event.shiftKey) event.preventDefault()
+          // Pointerup exclusively handles right clicks and drags. The native
+          // contextmenu must never apply a second mark or temporary smile.
+          event.preventDefault()
         }}
       >
         {board.map((rowCells, row) => rowCells.map((cell, col) => {
@@ -281,7 +316,6 @@ export function Board({
             board[cat.row][cat.col].region === cell.region ||
             (Math.abs(cat.row - row) <= 1 && Math.abs(cat.col - col) <= 1),
           )
-          const temporaryCatMark = temporaryCatXSet.has(k) && state === 'empty'
           const focused = focusKeys.has(k)
           const hintPlacement = placement?.row === row && placement.col === col
           const isDragPreview = previewKeys.has(k)
@@ -295,15 +329,23 @@ export function Board({
           // Hints, walkthroughs, and auto-fill keep their staged reveal timing.
           const revealIndex = revealIndexFor(k)
           const revealTotal = revealTotalFor()
-
+          const waveIndex = waveRevealOrder.get(k) ?? Infinity
+          const activeReveal = !isWalkthrough && !hint && waveIndex <= revealWaveIndex
+          const temporaryCatOrder = temporaryCatRevealOrder.get(k) ?? Infinity
+          const activeTemporaryCatReveal = temporaryCatOrder <= currentTemporaryCatWaveIndex
+          const temporaryCatMark = state === 'empty' && !temporaryCat && temporaryCatXSet.has(k) &&
+            temporaryCatWave !== null && activeTemporaryCatReveal
+          const visibleTemporaryCat = temporaryCat && temporaryCatWave !== null && currentTemporaryCatWaveIndex >= 1
           return (
             <Cell
-              key={k}
+              key={`${k}-${transitionKey ?? 'steady'}`}
               cell={cell}
               state={state}
               temporary={temp}
-              temporaryCat={temporaryCat}
+              temporaryCat={visibleTemporaryCat}
               temporaryCatMark={temporaryCatMark}
+              temporaryCatMarkReveal={temporaryCatMark && temporaryCatRevealOrder.get(k) === currentTemporaryCatWaveIndex}
+              temporaryCatReveal={visibleTemporaryCat && temporaryCatOrder === 1 && currentTemporaryCatWaveIndex === 1}
               temporaryCatConflict={temporaryCatConflict}
               previewX={previewX || eliminateKeys.has(k)}
               hintPreviewX={!isWalkthrough && eliminateKeys.has(k)}
@@ -317,6 +359,12 @@ export function Board({
               showRegionId={showRegionIds}
               revealIndex={revealIndex}
               revealTotal={revealTotal}
+              transitionDelay={transitionKey !== null && transitionOrder.has(k)
+                ? revealPositionDelayMs(transitionOrder.get(k)!, transitionTotal)
+                : null}
+              activeReveal={activeReveal}
+              activeWaveMark={!isWalkthrough && !hint && waveIndex > 1 && waveIndex <= revealWaveIndex && state === 'empty'}
+              revealStyle={activeReveal ? { '--pop-delay': '0ms' } as React.CSSProperties : undefined}
               colors={{
                 fill: colors.fills[cell.region % colors.fills.length],
                 border: colors.borders[cell.region % colors.borders.length],
@@ -324,8 +372,6 @@ export function Board({
               }}
               onSingleClick={() => onSingleClick(row, col)}
               onDoubleClick={() => onDoubleClick(row, col)}
-              onTemporaryClick={() => onTemporaryClick(row, col)}
-              onTemporaryCatClick={() => onTemporaryCatClick(row, col)}
             />
           )
         }))}

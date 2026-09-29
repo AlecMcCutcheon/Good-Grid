@@ -1,5 +1,5 @@
 import type { Difficulty } from '../game/types'
-import { HeartIcon, SmileIcon } from './Icons'
+import { HeartIcon, LightbulbIcon, SettingsIcon, SmileIcon } from './Icons'
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'extra-hard']
 
@@ -18,6 +18,7 @@ type Props = {
   onClearTemporaryMarks: () => void
   onUndo: () => void
   undoDisabled: boolean
+  undoHidden?: boolean
   onHint: () => void
   hintDisabled: boolean
 }
@@ -25,7 +26,7 @@ type Props = {
 export function Controls({
   difficulty, completed, catsFound, catTotal, hearts, maxHearts,
   onDifficultyChange, onReset, resetDisabled, onOpenSettings,
-  temporaryMarkCount, onClearTemporaryMarks, onUndo, undoDisabled, onHint, hintDisabled,
+  temporaryMarkCount, onClearTemporaryMarks, onUndo, undoDisabled, undoHidden = false, onHint, hintDisabled,
 }: Props) {
   return (
     <div className="controls">
@@ -55,10 +56,10 @@ export function Controls({
       </div>
 
       <div className="controls__group controls__group--buttons">
-        <button className="circle-btn circle-btn--small" onClick={onUndo} disabled={undoDisabled} aria-label="Undo" title="Undo">↶</button>
-        <button className="circle-btn circle-btn--small" onClick={onHint} disabled={hintDisabled} aria-label="Hint" title="Hint"><span aria-hidden="true">💡</span></button>
+        {!undoHidden && <button className="circle-btn circle-btn--small" onClick={onUndo} disabled={undoDisabled} aria-label="Undo" title="Undo">↶</button>}
+        <button className="circle-btn circle-btn--small" onClick={onHint} disabled={hintDisabled} aria-label="Hint" title="Hint"><LightbulbIcon className="controls__action-icon" /></button>
         <button className="circle-btn circle-btn--small" onClick={onReset} disabled={resetDisabled} aria-label="Restart this puzzle" title="Restart this puzzle">⟲</button>
-        <button className="circle-btn circle-btn--small" onClick={onOpenSettings} aria-label="Settings and progress" title="Settings and progress">⚙</button>
+        <button className="circle-btn circle-btn--small" onClick={onOpenSettings} aria-label="Settings and progress" title="Settings and progress"><SettingsIcon className="controls__action-icon" /></button>
         {temporaryMarkCount > 0 && <button className="btn" onClick={onClearTemporaryMarks}>Clear temp ({temporaryMarkCount})</button>}
       </div>
     </div>

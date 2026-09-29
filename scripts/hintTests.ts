@@ -1,7 +1,7 @@
 import { nextHint } from '../src/game/hints'
 import { buildWalkthrough } from '../src/game/walkthrough'
 import { generateLevel } from '../src/game/levelGenerator'
-import { getAutoFilledPositions } from '../src/game/rules'
+import { getAutoFilledPositions, orderPositionsRadially } from '../src/game/rules'
 import { readFileSync } from 'node:fs'
 import type { Difficulty } from '../src/game/types'
 
@@ -46,6 +46,27 @@ assert(autoFilled.has(key(2, 0)) && autoFilled.has(key(0, 2)), 'Auto-fill must i
 assert(autoFilled.has(key(1, 1)) && autoFilled.has(key(3, 3)), 'Auto-fill must include immediately adjacent diagonal cells')
 assert(!autoFilled.has(key(0, 0)), 'Auto-fill must not mark a distant cell in the same color region')
 assert(!autoFilled.has(key(4, 4)), 'Auto-fill must not treat long-range diagonals as conflicts')
+
+const radialOrder = orderPositionsRadially([
+  { row: 3, col: 3 },
+  { row: 2, col: 0 },
+  { row: 1, col: 2 },
+  { row: 2, col: 2 },
+  { row: 2, col: 3 },
+  { row: 3, col: 2 },
+  { row: 2, col: 1 },
+  { row: 1, col: 1 },
+], { row: 2, col: 2 })
+assert(radialOrder[0].row === 2 && radialOrder[0].col === 2, 'Radial reveals should start at their origin')
+assert(radialOrder.slice(1, 5).map((pos) => key(pos.row, pos.col)).join('|') === '2,3|3,2|2,1|1,2', 'Radial reveals should sweep clockwise around the first ring')
+assert(
+  radialOrder.slice(1).every((pos, index, positions) => {
+    if (index === 0) return true
+    const previous = positions[index - 1]
+    return (pos.row - 2) ** 2 + (pos.col - 2) ** 2 >= (previous.row - 2) ** 2 + (previous.col - 2) ** 2
+  }),
+  'Radial reveals should progress outward by distance after the first ring',
+)
 
 const boardBeforeWalkthrough = JSON.stringify(level.cells)
 const walkthrough = buildWalkthrough(level.cells)
@@ -105,21 +126,41 @@ assert(boardSource.includes('const visibleEliminateSet = walkthroughStep ? [] : 
 assert(boardSource.includes('walkthroughPreviewX={isWalkthrough && previewX}'), 'Walkthrough examples must render as temporary preview marks')
 const cellSource = readFileSync(new URL('../src/components/Cell.tsx', import.meta.url), 'utf8')
 assert(cellSource.includes('onDoubleClick={(event) =>') && cellSource.includes('onDoubleClick()') && cellSource.includes('event.detail !== 2') && !cellSource.includes('setTimeout'), 'Cat placement should use the native double-click event without delaying single clicks')
-assert(cellSource.includes('now - lastContextClick.current < 450') && cellSource.includes('onTemporaryCatClick()'), 'Double-right-click must toggle a temporary cat preview')
-assert(cellSource.includes('temporaryCatMark') && cellSource.includes('<XMarkIcon className="cell__temporary-glyph" />'), 'Ghost-cat auto-fill must reuse the same cyan X marker as temporary notes')
-assert(boardSource.includes('const temporaryCatMark = temporaryCatXSet.has(k) && state === \'empty\''), 'Ghost-cat previews should use the exact same auto-filled cells as cat placements')
+assert(appSource.includes('winningSmile') && appSource.includes('restartCurrentLevel(lastHeartOrigin ?? undefined)'), 'Continue and Retry transitions should originate at the deciding placement')
+assert(appSource.includes('transitionOriginSize = lvl.size') && appSource.includes('transitionOrigin.row / Math.max(1, transitionOriginSize - 1)'), 'Transition origins should retain their relative position when board sizes change')
+assert(!appSource.includes('setHearts(snapshot.hearts)') && !appSource.includes('Undo last move'), 'Undo must not restore lost hearts and game-over should not offer an undo action')
+assert(appSource.includes('undoHidden={gameOver}'), 'Game over should hide the regular Undo control')
+assert(boardSource.includes('levelTransition?.nonce') && cssSource.includes('cell-level-reveal'), 'Generated levels should reveal the real board cells with a radial transition')
+assert(!boardSource.includes('board--transition-cover'), 'Level changes must not add a second board overlay')
+assert(!cellSource.includes('onContextMenu=') && !cellSource.includes('setTimeout'), 'Cells must not duplicate right-click behavior outside the board gesture handler')
+assert(boardSource.includes('event.button === 2') && boardSource.includes('onMarkDrag(getMarkDragLine(finalDrag.start, finalDrag.current, finalDrag.axis), finalDrag.temporary'), 'Right-button drags must route through the temporary-mark path')
+assert(boardSource.includes('onTemporaryClick(finalDrag.start.row, finalDrag.start.col)') && boardSource.includes('onTemporaryCatClick(finalDrag.start.row, finalDrag.start.col)'), 'Right-click gestures should only toggle temporary notes or a temporary smile')
+assert(boardSource.includes('temporaryCatXSet.has(k) &&') && boardSource.includes('temporaryCatOrder <= currentTemporaryCatWaveIndex'), 'Temporary smile auto-fill Xs must be staged by their own reveal counter')
+assert(boardSource.includes('temporaryCatWaveIndex: currentTemporaryCatWaveIndex = 0'), 'Temporary smile previews must use a separate reveal timeline')
+assert(boardSource.includes('activeWaveMark={!isWalkthrough && !hint && waveIndex > 1'), 'Only the real cat-placement wave may render permanent auto-fill marks')
+assert(appSource.includes('revealWaveIndex > 1') && appSource.includes('setPencilMarks((previous) => new Set(previous).add(key(reachedPosition.row, reachedPosition.col)))'), 'Permanent Xs must be committed one cell at a time as the real reveal wave reaches them')
+assert(cellSource.includes('AUTO_FILL_REVEAL_TOTAL_MS = 280') && appSource.includes('autoFillRevealStepDelayMs(revealWave.positions.length)'), 'Real auto-fill animation should keep its quicker radial timing')
+const temporaryCatHandler = appSource.slice(appSource.indexOf('const handleTemporaryCatClick'), appSource.indexOf('const clearTemporaryMarks'))
+assert(temporaryCatHandler.includes('setTemporaryCatWave({ origin: { row, col }, positions: previewPositions') && !temporaryCatHandler.includes('setPencilMarks('), 'Temporary smile previews must animate without ever mutating permanent Xs')
+assert(appSource.includes('if (!temporaryCatWave || temporaryCatWaveIndex >= temporaryCatWave.positions.length) return'), 'Temporary smile waves should finish without committing permanent marks')
+assert(cellSource.includes('temporaryCatMark') && cellSource.includes('cell__temporary-glyph'), 'Temporary smile auto-fill should use the colored temporary X glyph')
+assert(/\.cell__temporary-glyph\s*\{[^}]*color:\s*#7de8ff[^}]*filter:\s*drop-shadow\(0 1px 3px #102030\)/s.test(cssSource), 'Temporary Xs must retain the normal dark shadow while staying cyan')
+assert(/\.cell__temporary-cat-glyph\s*\{[^}]*color:\s*#7de8ff[^}]*filter:\s*drop-shadow\(0 1px 3px #102030\)/s.test(cssSource), 'Temporary smiles must be cyan with a dark shadow')
 const iconSource = readFileSync(new URL('../src/components/Icons.tsx', import.meta.url), 'utf8')
+const controlsSource = readFileSync(new URL('../src/components/Controls.tsx', import.meta.url), 'utf8')
 assert(iconSource.includes('export function SmileIcon') && iconSource.includes('export function FrownIcon') && iconSource.includes('export function TemporarySmileIcon'), 'Found, incorrect, and temporary faces must use custom SVG icon components')
-assert(cellSource.includes('<FrownIcon className="cell__miss-icon" />') && cellSource.includes('<SmileIcon className="cell__cat-icon" />') && cellSource.includes('<TemporarySmileIcon className="cell__temporary-cat-glyph" />'), 'Board state icons should render as frowny, happy, and temporary-color happy faces')
+assert(iconSource.includes('export function LightbulbIcon') && iconSource.includes('export function SettingsIcon') && controlsSource.includes('<LightbulbIcon') && controlsSource.includes('<SettingsIcon'), 'Hint and settings controls should use matching outline icons')
+assert(iconSource.includes('export function HeartIcon') && appSource.includes('<HeartIcon className="level-dialog__heart-icon" filled={false} />'), 'The failure dialog should use the outline heart icon')
+assert(cellSource.includes('<FrownIcon className="cell__miss-icon" />') && cellSource.includes('<SmileIcon className="cell__cat-icon" />') && cellSource.includes('TemporarySmileIcon'), 'Board state icons should render as frowny, happy, and temporary-color happy faces')
 const rulesSource = readFileSync(new URL('../src/game/rules.ts', import.meta.url), 'utf8')
 const autoFillBody = rulesSource.slice(rulesSource.indexOf('export function getAutoFilledPositions'), rulesSource.indexOf('/** Are any two'))
 assert(!autoFillBody.includes('cell.region'), 'Auto-fill must not automatically mark the rest of a color region')
 assert(boardSource.includes('temporaryCatConflict={temporaryCatConflict}'), 'Temporary cat previews should visibly distinguish an invalid placement')
-assert(cellSource.includes('onTemporaryClick()'), 'Single right-click must continue toggling temporary notes')
+assert(boardSource.includes('onTemporaryClick(finalDrag.start.row, finalDrag.start.col)'), 'Single right-click must continue toggling temporary notes')
 const ruleCardSource = readFileSync(new URL('../src/components/RuleCards.tsx', import.meta.url), 'utf8')
 assert(ruleCardSource.includes("import { SmileIcon, XMarkIcon } from './Icons'"), 'Rule diagrams must reuse the board icons')
 assert(/cells=\{\[\s*\{ region: true, mark: 'x' \}, \{ region: true, mark: 'x' \}, null,\s*\{ region: true, mark: 'x' \}, \{ region: true, mark: 'cat' \}/s.test(ruleCardSource), 'Color-region rule diagram must show a 2×2 region with its cat in the bottom-right cell')
 assert(/\.mini__cell\s*\{[^}]*background:\s*#353b43/s.test(cssSource) && /\.mini__cell--region\s*\{[^}]*background:\s*#4a515a/s.test(cssSource), 'All rule diagrams should use visible grayscale cells')
-assert(/\.cell__preview-glyph,\s*\.cell__x-icon,\s*\.cell__miss-icon\s*\{[^}]*width:\s*80%[^}]*height:\s*80%/s.test(cssSource) && /\.cell__temporary-glyph\s*\{[^}]*width:\s*80%[^}]*height:\s*80%/s.test(cssSource), 'Normal, preview, and temporary X-size marks should match')
+assert(/\.cell__preview-glyph,\s*\.cell__x-icon,\s*\.cell__miss-icon,\s*\.cell__temporary-glyph\s*\{[^}]*width:\s*80%[^}]*height:\s*80%/s.test(cssSource), 'Normal, preview, and temporary X-size marks should match')
 
 console.log(`Hint tests passed: ${walkthrough.length} cumulative walkthrough steps, mark gestures, autofill preview rules, custom face icons, and legends`)

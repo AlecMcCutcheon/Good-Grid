@@ -25,6 +25,22 @@ export function touching(a: Position, b: Position): boolean {
   return Math.abs(a.row - b.row) <= 1 && Math.abs(a.col - b.col) <= 1
 }
 
+/** Sort positions in expanding distance rings, sweeping around each ring from the origin. */
+export function orderPositionsRadially(positions: Position[], origin: Position): Position[] {
+  return [...positions].sort((a, b) => {
+    const aRow = a.row - origin.row
+    const aCol = a.col - origin.col
+    const bRow = b.row - origin.row
+    const bCol = b.col - origin.col
+    const distanceDifference = aRow * aRow + aCol * aCol - bRow * bRow - bCol * bCol
+    if (distanceDifference !== 0) return distanceDifference
+
+    const angle = (row: number, col: number) => (Math.atan2(row, col) + Math.PI * 2) % (Math.PI * 2)
+    const angleDifference = angle(aRow, aCol) - angle(bRow, bCol)
+    return angleDifference || a.row - b.row || a.col - b.col
+  })
+}
+
 /** Basic cells auto-marked around a cat: its row, column, and immediate neighbors. */
 export function getAutoFilledPositions(board: Board, position: Position): Position[] {
   const size = board.length
