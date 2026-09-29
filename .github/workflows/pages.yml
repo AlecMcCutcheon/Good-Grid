@@ -28,7 +28,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Build
-        run: npm run build
+        run: VITE_BASE_PATH=/Good-Grid/ npm run build
+      - name: Verify Pages asset paths
+        run: |
+          grep -Eq 'src="/Good-Grid/assets/[^" ]+\.js"' dist/index.html
+          grep -Eq 'href="/Good-Grid/assets/[^" ]+\.css"' dist/index.html
+          ! grep -q 'src="/src/main.tsx"' dist/index.html
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
