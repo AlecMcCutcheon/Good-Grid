@@ -6,13 +6,17 @@ import { getAutoFilledPositions, orderPositionsRadially } from '../game/rules'
 import { Cell, revealPositionDelayMs, type CellState } from './Cell'
 import type { HintStep } from '../game/hints'
 import type { WalkthroughStep } from '../game/walkthrough'
-import { chooseMarkDragAxis, getMarkDragLine, getRegionPositions, type MarkDragAxis } from '../game/markDrag'
+import { getRegionPositions, type MarkDragAxis } from '../game/markDrag'
+import { chooseBoardViewDragAxis, getBoardViewDragLine, rotateBoardPosition, type BoardRotation } from '../game/boardView'
+import { BoardRotationButton } from './BoardRotationControls'
 
 type RevealWave = { origin: Position; positions: Position[]; nonce: number }
 type LevelTransition = { origin: Position; nonce: number }
 
 type Props = {
   board: BoardModel
+  rotation?: BoardRotation
+  rotationDisabled?: boolean
   cats: Position[]
   marks: Set<string>
   revealWave?: RevealWave | null
@@ -32,6 +36,7 @@ type Props = {
   walkthroughStep: WalkthroughStep | null
   walkthroughIndex: number | null
   walkthroughCount: number
+  onRotate: (direction: -1 | 1) => void
   palette: RegionPalette
   showRegionIds: boolean
   win: boolean
@@ -60,8 +65,8 @@ function buildRevealOrder(positions: Position[]): Map<string, number> {
 }
 
 export function Board({
-  board, cats, marks, revealWave, temporaryCatWave, temporaryCatWaveIndex: currentTemporaryCatWaveIndex = 0, levelTransition, transitionNonce: externalTransitionNonce, transitionOrigin: externalTransitionOrigin, revealWaveIndex = 0, temporaryMarks, temporaryCats, misses, hint, visibleHintEliminate,
-  hintRevealComplete, walkthroughReady, walkthroughStep, walkthroughIndex, walkthroughCount, palette, showRegionIds, win,
+  board, rotation = 0, rotationDisabled = false, cats, marks, revealWave, temporaryCatWave, temporaryCatWaveIndex: currentTemporaryCatWaveIndex = 0, levelTransition, transitionNonce: externalTransitionNonce, transitionOrigin: externalTransitionOrigin, revealWaveIndex = 0, temporaryMarks, temporaryCats, misses, hint, visibleHintEliminate,
+  hintRevealComplete, walkthroughReady, walkthroughStep, walkthroughIndex, walkthroughCount, onRotate, palette, showRegionIds, win,
   onSingleClick, onDoubleClick, onTemporaryClick, onTemporaryCatClick, onMarkDrag, onApplyHint, onDismissHint,
   onNextWalkthrough, onPreviousWalkthrough, onCloseWalkthrough,
 }: Props) {
@@ -108,6 +113,19 @@ export function Board({
   const transitionOrder = buildRevealOrder(transitionPositions)
   const transitionTotal = transitionPositions.length || 1
   const transitionKey = levelTransition?.nonce ?? externalTransitionNonce ?? null
+  const rotatedFocusLines: { axis: 'row' | 'column'; index: number }[] = []
+  if (focusRow != null) {
+    if (rotation === 0) rotatedFocusLines.push({ axis: 'row', index: focusRow })
+    else if (rotation === 1) rotatedFocusLines.push({ axis: 'column', index: size - 1 - focusRow })
+    else if (rotation === 2) rotatedFocusLines.push({ axis: 'row', index: size - 1 - focusRow })
+    else rotatedFocusLines.push({ axis: 'column', index: focusRow })
+  }
+  if (focusColumn != null) {
+    if (rotation === 0) rotatedFocusLines.push({ axis: 'column', index: focusColumn })
+    else if (rotation === 1) rotatedFocusLines.push({ axis: 'row', index: focusColumn })
+    else if (rotation === 2) rotatedFocusLines.push({ axis: 'column', index: size - 1 - focusColumn })
+    else rotatedFocusLines.push({ axis: 'row', index: size - 1 - focusColumn })
+  }
 
   /** Reveal index for staged hints, walkthroughs, and auto-fill waves. */
   const revealIndexFor = (k: string) => {
@@ -154,17 +172,16 @@ export function Board({
       if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 18) return
       const current = positionFromTarget(document.elementFromPoint(event.clientX, event.clientY))
       if (!current) return
-      const axis = drag.axis ?? chooseMarkDragAxis(drag.start, current)
+      const axis = drag.axis ?? chooseBoardViewDragAxis(drag.start, current, board.length, rotation)
       if (!axis) return
       if (!drag.moved) {
         drag.moved = true
         if (!drag.temporary) suppressNextClick.current = true
-      }        if (current.row === drag.current.row && current.col === drag.current.col && axis === drag.axis) return
-        drag.axis = axis
-        drag.current = current
-        setDragPreview(axis
-          ? getMarkDragLine(drag.start, current, axis)
-          : [drag.start])
+      }
+      if (current.row === drag.current.row && current.col === drag.current.col && axis === drag.axis) return
+      drag.axis = axis
+      drag.current = current
+      setDragPreview(getBoardViewDragLine(drag.start, current, axis, board.length, rotation))
     }
     const finishDrag = (event: PointerEvent) => {
       const drag = dragRef.current
@@ -173,7 +190,7 @@ export function Board({
       if (movedPastThreshold) drag.moved = true
       const pointerUpCell = positionFromTarget(document.elementFromPoint(event.clientX, event.clientY))
       if (!drag.regionMode && pointerUpCell) {
-        const axis = drag.axis ?? chooseMarkDragAxis(drag.start, pointerUpCell)
+        const axis = drag.axis ?? chooseBoardViewDragAxis(drag.start, pointerUpCell, board.length, rotation)
         if (axis) {
           drag.axis = axis
           drag.current = pointerUpCell
@@ -213,7 +230,7 @@ export function Board({
       if (finalDrag.regionMode) {
         onMarkDrag(getRegionPositions(board, finalDrag.start), finalDrag.temporary, finalDrag.erase)
       } else if (finalDrag.axis) {
-        onMarkDrag(getMarkDragLine(finalDrag.start, finalDrag.current, finalDrag.axis), finalDrag.temporary, finalDrag.erase)
+        onMarkDrag(getBoardViewDragLine(finalDrag.start, finalDrag.current, finalDrag.axis, board.length, rotation), finalDrag.temporary, finalDrag.erase)
       }
     }
     const cancelDrag = (event: PointerEvent) => {
@@ -234,7 +251,14 @@ export function Board({
       window.removeEventListener('pointercancel', cancelDrag)
       if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
     }
-  }, [board, onMarkDrag, onTemporaryClick, onTemporaryCatClick])
+  }, [board, rotation, onMarkDrag, onTemporaryClick, onTemporaryCatClick])
+
+  useEffect(() => {
+    if (dragRef.current) {
+      dragRef.current = null
+      setDragPreview([])
+    }
+  }, [rotation])
 
   const handleBoardPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 2) return
@@ -277,31 +301,33 @@ export function Board({
 
   return (
     <div className="board-stage">
-      <div
-        className={`board${win ? ' board--win' : ''}`}
-        style={{
-          gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${size}, minmax(0, 1fr))`,
-          ['--n' as string]: size,
-        }}
-        ref={boardRef}
-        role="grid"
-        aria-label={`${size} by ${size} Petdoku board`}
-        onPointerDown={handleBoardPointerDown}
-        onClickCapture={(event) => {
-          if (!suppressNextClick.current) return
-          suppressNextClick.current = false
-          if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
-          suppressClickTimer.current = null
-          event.preventDefault()
-          event.stopPropagation()
-        }}
-        onContextMenuCapture={(event) => {
-          // Pointerup exclusively handles right clicks and drags. The native
-          // contextmenu must never apply a second mark or temporary smile.
-          event.preventDefault()
-        }}
-      >
+      <div className="board-rotation-frame">
+        <BoardRotationButton rotation={rotation} direction={-1} disabled={rotationDisabled} onRotate={onRotate} />
+        <div
+          className={`board${win ? ' board--win' : ''}${transitionKey !== null ? ' board--transitioning' : ''}`}
+          style={{
+            gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))`,
+            gridTemplateRows: `repeat(${size}, minmax(0, 1fr))`,
+            ['--n' as string]: size,
+          }}
+          ref={boardRef}
+          role="grid"
+          aria-label={`${size} by ${size} Petdoku board`}
+          onPointerDown={handleBoardPointerDown}
+          onClickCapture={(event) => {
+            if (!suppressNextClick.current) return
+            suppressNextClick.current = false
+            if (suppressClickTimer.current !== null) window.clearTimeout(suppressClickTimer.current)
+            suppressClickTimer.current = null
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          onContextMenuCapture={(event) => {
+            // Pointerup exclusively handles right clicks and drags. The native
+            // contextmenu must never apply a second mark or temporary smile.
+            event.preventDefault()
+          }}
+        >
         {board.map((rowCells, row) => rowCells.map((cell, col) => {
           const k = key(row, col)
           const isCat = catSet.has(k)
@@ -357,6 +383,7 @@ export function Board({
               hintPlacement={!!hintPlacement}
               hinted={hint?.wrongMark?.row === row && hint.wrongMark.col === col}
               showRegionId={showRegionIds}
+              displayPosition={rotateBoardPosition(cell, size, rotation)}
               revealIndex={revealIndex}
               revealTotal={revealTotal}
               transitionDelay={transitionKey !== null && transitionOrder.has(k)
@@ -374,28 +401,25 @@ export function Board({
               onDoubleClick={() => onDoubleClick(row, col)}
             />
           )
-        }))}
+        }        ))}
         {(focusRow != null || focusColumn != null) && (
-          <div
-            className="board__logic-overlay"
-            aria-hidden="true"
-          >
-            {focusRow != null && (
+
+          <div className="board__logic-overlay" aria-hidden="true">
+            {rotatedFocusLines.map(({ axis, index }, lineIndex) => (
               <div
-                className="board__logic-line board__logic-line--row"
-                data-focus-row={focusRow}
-                style={{ gridRow: focusRow + 1, gridColumn: '1 / -1' }}
+                key={`${axis}-${lineIndex}`}
+                className={`board__logic-line board__logic-line--${axis}`}
+                data-focus-row={axis === 'row' ? index : undefined}
+                data-focus-column={axis === 'column' ? index : undefined}
+                style={axis === 'row'
+                  ? { gridRow: index + 1, gridColumn: '1 / -1' }
+                  : { gridColumn: `${index + 1} / ${index + 2}`, gridRow: '1 / -1' }}
               />
-            )}
-            {focusColumn != null && (
-              <div
-                className="board__logic-line board__logic-line--column"
-                data-focus-column={focusColumn}
-                style={{ gridColumn: `${focusColumn + 1} / ${focusColumn + 2}`, gridRow: '1 / -1' }}
-              />
-            )}
+            ))}
           </div>
         )}
+        </div>
+        <BoardRotationButton rotation={rotation} direction={1} disabled={rotationDisabled} onRotate={onRotate} />
       </div>
 
       {(hint || walkthroughStep) && (

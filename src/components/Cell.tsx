@@ -6,6 +6,7 @@ export type CellState = 'empty' | 'x' | 'miss' | 'cat'
 
 type Props = {
   cell: CellModel
+  displayPosition: { row: number; col: number }
   state: CellState
   temporary: boolean
   temporaryCat: boolean
@@ -53,6 +54,7 @@ export function revealPositionDelayMs(index: number, total: number): number {
 
 export function Cell({
   cell,
+  displayPosition,
   state,
   temporary,
   temporaryCat,
@@ -134,7 +136,12 @@ export function Cell({
       className={`${classes}${transitionDelay === null ? '' : ' cell--level-transition'}`}
       data-row={cell.row}
       data-col={cell.col}
-      style={{ background: colors.fill, ...transitionStyle }}
+      style={{
+        background: colors.fill,
+        gridRow: displayPosition.row + 1,
+        gridColumn: displayPosition.col + 1,
+        ...transitionStyle,
+      }}
       onClick={(event) => {
         if (!event.shiftKey && event.button === 0 && event.detail !== 2) onSingleClick()
       }}

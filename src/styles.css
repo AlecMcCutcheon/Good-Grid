@@ -43,6 +43,7 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px;
+  overflow-x: hidden;
 }
 
 .loading {
@@ -361,6 +362,50 @@ body {
   flex-direction: column;
   gap: 14px;
   align-items: center;
+}
+
+.board-rotation-frame {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.board-rotation-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 27px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s ease, transform 0.12s ease, opacity 0.15s ease;
+}
+
+.board-rotation-button:hover:not(:disabled) {
+  background: var(--surface-2);
+  transform: scale(1.06);
+}
+
+.board-rotation-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.board-rotation-button:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
+.board-rotation-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .board__logic-overlay {
@@ -916,6 +961,10 @@ select.select--difficulty {
   animation: pop 0.4s ease;
 }
 
+.board--transitioning {
+  pointer-events: none;
+}
+
 @keyframes pop {
   0% {
     transform: scale(1);
@@ -1279,7 +1328,32 @@ select.select--difficulty {
   }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 760px) {
+  .board-rotation-frame {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    justify-items: center;
+    gap: 8px;
+  }
+
+  .board-rotation-frame > .board {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: min(64vh, 560px, calc(100vw - 108px));
+  }
+
+  .board-rotation-button--counterclockwise {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .board-rotation-button--clockwise {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+  }
+
   .controls {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

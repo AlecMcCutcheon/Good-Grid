@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Difficulty, GenerationReport, Level, Position } from './game/types'
 import { generateLevel } from './game/levelGenerator'
 import { createPlayerProfile, levelSeedFor, levelSizeFor, parsePlayerProfile, PROFILE_STORAGE_KEY, LEGACY_PROFILE_STORAGE_KEY, type PlayerProfile } from './game/playerProfile'
+import { buildSavedGame, nextLevelIndexAfterContinue, readSavedGame, savedGameStorageKey, serializeSavedGame, type SavedGame } from './game/savedGame'
+import { normalizeBoardRotation, type BoardRotation } from './game/boardView'
 import { PALETTES, DEFAULT_PALETTE_INDEX, buildRegionColors } from './game/palettes'
 import { nextHint, type HintStep } from './game/hints'
 import { buildWalkthrough } from './game/walkthrough'
@@ -46,14 +48,18 @@ export default function App() {
   const profileRef = useRef(profile)
   profileRef.current = profile
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [levelEpoch, setLevelEpoch] = useState(0)
-  const completedEpoch = useRef(-1)
+  const didHydrateSavedGame = useRef(false)
   const levelLoadTimer = useRef<number | null>(null)
   const levelTransitionTimer = useRef<number | null>(null)
   const transitionNonce = useRef(0)
   const hasLoadedLevel = useRef(false)
   const [level, setLevel] = useState<Level | null>(null)
+  const [gameDifficulty, setGameDifficulty] = useState<Difficulty>(profile.difficulty)
+  const [gameProfileId, setGameProfileId] = useState(profile.id)
+  const [gameLevelIndex, setGameLevelIndex] = useState(profile.completed[profile.difficulty])
   const [levelTransition, setLevelTransition] = useState<{ origin: Position; nonce: number } | null>(null)
+  const [rotationTransition, setRotationTransition] = useState<{ origin: Position; nonce: number } | null>(null)
+  const [boardRotation, setBoardRotation] = useState<BoardRotation>(0)
   const [report, setReport] = useState<GenerationReport | null>(null)
   const [hearts, setHearts] = useState(MAX_HEARTS)
   const [lastHeartOrigin, setLastHeartOrigin] = useState<Position | null>(null)
@@ -78,9 +84,17 @@ export default function App() {
   const difficulty = profile.difficulty
   const won = level != null && cats.length === level.size
   const palette = PALETTES[DEFAULT_PALETTE_INDEX]
-  const generateProfileLevel = useCallback((targetProfile: PlayerProfile, tier: Difficulty) => {
+  const getProfileLevel = useCallback((targetProfile: PlayerProfile, tier: Difficulty) => {
+    try {
+      const raw = localStorage.getItem(savedGameStorageKey(targetProfile.id, tier))
+      const saved = readSavedGame(raw, targetProfile.id, tier, targetProfile.completed[tier])
+      if (saved) return { level: saved.level, report: saved.report, saved }
+    } catch {
+      // Fall back to deterministic generation if saved storage is unavailable.
+    }
     const seed = levelSeedFor(targetProfile, tier)
-    return generateLevel({ difficulty: tier, seed, size: levelSizeFor(targetProfile, tier) })
+    const generated = generateLevel({ difficulty: tier, seed, size: levelSizeFor(targetProfile, tier) })
+    return { ...generated, saved: null }
   }, [])
 
   useEffect(() => {
@@ -90,6 +104,40 @@ export default function App() {
       // The in-memory profile still works when browser storage is unavailable.
     }
   }, [profile])
+
+  useEffect(() => {
+    if (!level || !gameProfileId || !didHydrateSavedGame.current) return
+    const saved = buildSavedGame({
+      profileId: gameProfileId,
+      difficulty: gameDifficulty,
+      levelIndex: gameLevelIndex,
+      level,
+      report,
+      cats,
+      pencilMarks: [...pencilMarks],
+      temporaryMarks: [...temporaryMarks],
+      temporaryCats: [...temporaryCats],
+      misses: [...misses],
+      hearts,
+      lastHeartOrigin,
+      revealWave,
+      revealWaveIndex,
+      temporaryCatWave,
+      temporaryCatWaveIndex,
+      history: history.map((snapshot) => ({
+        cats: snapshot.cats,
+        pencilMarks: [...snapshot.pencilMarks],
+        temporaryMarks: [...snapshot.temporaryMarks],
+        temporaryCats: [...snapshot.temporaryCats],
+        misses: [...snapshot.misses],
+      })),
+    })
+    try {
+      localStorage.setItem(savedGameStorageKey(gameProfileId, gameDifficulty), serializeSavedGame(saved))
+    } catch {
+      // Continue playing if local storage is unavailable or full.
+    }
+  }, [gameProfileId, gameDifficulty, gameLevelIndex, level, report, cats, pencilMarks, temporaryMarks, temporaryCats, misses, hearts, lastHeartOrigin, revealWave, revealWaveIndex, temporaryCatWave, temporaryCatWaveIndex, history])
   const walkthrough = useMemo(
     () => level ? buildWalkthrough(level.cells) : [],
     [level],
@@ -129,8 +177,10 @@ export default function App() {
     rep: GenerationReport | null,
     transitionOrigin?: Position,
     transitionOriginSize = lvl.size,
+    saved: SavedGame | null = null,
   ) => {
     if (levelTransitionTimer.current !== null) window.clearTimeout(levelTransitionTimer.current)
+    setRotationTransition(null)
     setRevealWave(null)
     setRevealWaveIndex(0)
     setTemporaryCatWave(null)
@@ -152,17 +202,33 @@ export default function App() {
       hasLoadedLevel.current = true
       setLevelTransition(null)
     }
-    setLevelEpoch((epoch) => epoch + 1)
     setLevel(lvl)
-    if (rep !== null) setReport(rep)
-    setHearts(MAX_HEARTS)
-    setLastHeartOrigin(null)
-    setCats([])
-    setPencilMarks(new Set())
-    setTemporaryMarks(new Set())
-    setTemporaryCats(new Set())
-    setMisses(new Set())
-    setHistory([])
+    setGameDifficulty(lvl.difficulty)
+    didHydrateSavedGame.current = true
+    setGameProfileId(profileRef.current.id)
+    const savedLevelIndex = saved?.levelIndex ?? profileRef.current.completed[lvl.difficulty]
+    setGameLevelIndex(savedLevelIndex)
+    setReport(rep)
+    setHearts(saved?.hearts ?? MAX_HEARTS)
+    setLastHeartOrigin(saved?.lastHeartOrigin ?? null)
+    setCats(saved ? [...saved.cats] : [])
+    setPencilMarks(new Set(saved?.pencilMarks ?? []))
+    setTemporaryMarks(new Set(saved?.temporaryMarks ?? []))
+    setTemporaryCats(new Set(saved?.temporaryCats ?? []))
+    setMisses(new Set(saved?.misses ?? []))
+    setRevealWave(saved?.revealWave ?? null)
+    setRevealWaveIndex(saved?.revealWaveIndex ?? 0)
+    setTemporaryCatWave(saved?.temporaryCatWave ?? null)
+    setTemporaryCatWaveIndex(saved?.temporaryCatWaveIndex ?? 0)
+    setHistory(saved
+      ? saved.history.map((snapshot) => ({
+          cats: [...snapshot.cats],
+          pencilMarks: new Set(snapshot.pencilMarks),
+          temporaryMarks: new Set(snapshot.temporaryMarks),
+          temporaryCats: new Set(snapshot.temporaryCats),
+          misses: new Set(snapshot.misses),
+        }))
+      : [])
     setActiveHint(null)
     setActiveHintRevealCount(0)
     setWalkthroughIndex(null)
@@ -210,8 +276,8 @@ export default function App() {
   useEffect(() => {
     setGenerating(true)
     levelLoadTimer.current = window.setTimeout(() => {
-      const generated = generateProfileLevel(profileRef.current, profileRef.current.difficulty)
-      startLevel(generated.level, generated.report)
+      const cached = getProfileLevel(profileRef.current, profileRef.current.difficulty)
+      startLevel(cached.level, cached.report, undefined, cached.level.size, cached.saved)
       setGenerating(false)
       levelLoadTimer.current = null
     }, 20)
@@ -221,7 +287,21 @@ export default function App() {
     }
     // The initial mount starts the default tier; later changes go through newLevel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [generateProfileLevel, startLevel])
+  }, [getProfileLevel, startLevel])
+
+  const rotateBoard = useCallback((direction: -1 | 1) => {
+    if (generating || levelTransition !== null || rotationTransition !== null || !level) return
+    if (levelTransitionTimer.current !== null) window.clearTimeout(levelTransitionTimer.current)
+    const nextRotation = normalizeBoardRotation(boardRotation + direction)
+    const origin = { row: Math.floor(level.size / 2), col: Math.floor(level.size / 2) }
+    const nonce = ++transitionNonce.current
+    setBoardRotation(nextRotation)
+    setRotationTransition({ origin, nonce })
+    levelTransitionTimer.current = window.setTimeout(() => {
+      setRotationTransition(null)
+      levelTransitionTimer.current = null
+    }, REVEAL_TOTAL_MS + 450)
+  }, [generating, levelTransition, rotationTransition, level, boardRotation])
 
   const changeDifficulty = useCallback((nextDifficulty: Difficulty) => {
     if (nextDifficulty === profileRef.current.difficulty) return
@@ -232,12 +312,12 @@ export default function App() {
     setProfile(nextProfile)
     setGenerating(true)
     levelLoadTimer.current = window.setTimeout(() => {
-      const generated = generateProfileLevel(nextProfile, nextDifficulty)
-      startLevel(generated.level, generated.report)
+      const cached = getProfileLevel(nextProfile, nextDifficulty)
+      startLevel(cached.level, cached.report, undefined, cached.level.size, cached.saved)
       setGenerating(false)
       levelLoadTimer.current = null
     }, 20)
-  }, [generateProfileLevel, startLevel])
+  }, [getProfileLevel, startLevel])
 
   const importProfile = useCallback((nextProfile: PlayerProfile) => {
     if (levelLoadTimer.current !== null) window.clearTimeout(levelLoadTimer.current)
@@ -246,49 +326,67 @@ export default function App() {
     setProfile(nextProfile)
     setGenerating(true)
     levelLoadTimer.current = window.setTimeout(() => {
-      const generated = generateProfileLevel(nextProfile, nextProfile.difficulty)
-      startLevel(generated.level, generated.report)
+      const cached = getProfileLevel(nextProfile, nextProfile.difficulty)
+      startLevel(cached.level, cached.report, undefined, cached.level.size, cached.saved)
       setGenerating(false)
       setSettingsOpen(false)
       levelLoadTimer.current = null
     }, 20)
-  }, [generateProfileLevel, startLevel])
+  }, [getProfileLevel, startLevel])
 
   const restartCurrentLevel = useCallback((transitionOrigin?: Position) => {
     if (!level) return
     if (levelLoadTimer.current !== null) window.clearTimeout(levelLoadTimer.current)
     levelLoadTimer.current = null
+    try {
+      localStorage.removeItem(savedGameStorageKey(gameProfileId, level.difficulty))
+    } catch {
+      // Restart still works when storage is unavailable.
+    }
     setGenerating(false)
-    startLevel(level, report, transitionOrigin, level.size)
-  }, [level, report, startLevel])
+    startLevel(level, report, transitionOrigin, level.size, null)
+  }, [level, report, gameProfileId, startLevel])
 
   const continueToNextLevel = useCallback(() => {
-    if (!won || !level) return
+    if (!won || !level || levelLoadTimer.current !== null) return
+    const completedDifficulty = level.difficulty
     const winningSmile = cats[cats.length - 1]
-    if (levelLoadTimer.current !== null) window.clearTimeout(levelLoadTimer.current)
     setGenerating(true)
     levelLoadTimer.current = window.setTimeout(() => {
-      const generated = generateProfileLevel(profileRef.current, profileRef.current.difficulty)
-      startLevel(generated.level, generated.report, winningSmile, level.size)
-      setGenerating(false)
-      levelLoadTimer.current = null
-    }, 20)
-  }, [won, level, cats, generateProfileLevel, startLevel])
+      try {
+        const currentProfile = profileRef.current
+        const nextLevelIndex = nextLevelIndexAfterContinue(
+          gameLevelIndex,
+          currentProfile.completed[completedDifficulty],
+        )
+        const nextProfile = {
+          ...currentProfile,
+          completed: {
+            ...currentProfile.completed,
+            [completedDifficulty]: nextLevelIndex,
+          },
+        }
+        const seed = levelSeedFor(nextProfile, completedDifficulty)
+        const generated = generateLevel({ difficulty: completedDifficulty, seed, size: levelSizeFor(nextProfile, completedDifficulty) })
 
-  useEffect(() => {
-    if (!won || !level || completedEpoch.current === levelEpoch) return
-    completedEpoch.current = levelEpoch
-    const currentProfile = profileRef.current
-    const nextProfile: PlayerProfile = {
-      ...currentProfile,
-      completed: {
-        ...currentProfile.completed,
-        [level.difficulty]: currentProfile.completed[level.difficulty] + 1,
-      },
-    }
-    profileRef.current = nextProfile
-    setProfile(nextProfile)
-  }, [won, level, levelEpoch])
+        profileRef.current = nextProfile
+        setProfile(nextProfile)
+        try {
+          localStorage.removeItem(savedGameStorageKey(nextProfile.id, completedDifficulty))
+        } catch {
+          // Deterministic generation remains available even if cache removal fails.
+        }
+        startLevel(generated.level, generated.report, winningSmile, level.size, null)
+        setGameLevelIndex(nextLevelIndex)
+      } catch (error) {
+        // Keep the completed board available so Continue can be retried.
+        console.error('Could not generate the next level:', error)
+      } finally {
+        setGenerating(false)
+        levelLoadTimer.current = null
+      }
+    }, 20)
+  }, [won, level, cats, gameLevelIndex, startLevel])
 
   const pushHistory = useCallback(() => {
     setHistory((previous) => [
@@ -657,8 +755,11 @@ export default function App() {
             hintRevealComplete={!activeHint || activeHintRevealCount >= activeHint.eliminate.length}
             walkthroughReady={!walkthroughStep || walkthroughRevealCount >= walkthroughStep.addedXs.length}
             walkthroughStep={visibleWalkthroughStep}
-            transitionNonce={levelTransition?.nonce ?? null}
-            transitionOrigin={levelTransition?.origin ?? null}
+            transitionNonce={rotationTransition?.nonce ?? levelTransition?.nonce ?? null}
+            transitionOrigin={rotationTransition?.origin ?? levelTransition?.origin ?? null}
+            rotation={boardRotation}
+            rotationDisabled={generating || levelTransition !== null || rotationTransition !== null}
+            onRotate={rotateBoard}
             onApplyHint={applyHint}
             onDismissHint={clearHint}
             onNextWalkthrough={() => {
