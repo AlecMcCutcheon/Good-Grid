@@ -369,6 +369,54 @@ body {
   pointer-events: none;
 }
 
+/* Two-stroke X drawing: each diagonal reveals along its path length. When a
+   draw animation is applied, --draw starts at 0 and animates to the target
+   (1 by default, or a direction-specific partial). */
+.x-mark__stroke {
+  stroke-dashoffset: calc(1 - var(--draw, 1));
+}
+
+.x-mark__stroke--1 {
+  --draw: var(--draw-1, 1);
+}
+
+.x-mark__stroke--2 {
+  --draw: var(--draw-2, 1);
+}
+
+@keyframes x-stroke-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: calc(1 - var(--draw, 1)); }
+}
+
+.cell__x-icon--draw .x-mark__stroke {
+  animation: x-stroke-draw 0.16s ease-out forwards;
+  animation-delay: calc(var(--stroke-delay, 0ms) + var(--reveal-delay, 0ms));
+  stroke-dashoffset: 1; /* hidden until its delayed draw begins */
+}
+
+/* Second stroke starts after the first completes. */
+.cell__x-icon--draw .x-mark__stroke--2 {
+  animation-delay: calc(var(--stroke-delay, 0ms) + var(--reveal-delay, 0ms) + 0.16s);
+}
+
+@keyframes glyph-pop {
+  0% { transform: scale(0.55); }
+  55% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+.cell__glyph--pop {
+  animation: glyph-pop 0.22s ease-out;
+  animation-delay: var(--pop-delay, 0ms);
+  opacity: 0;
+  animation-fill-mode: backwards;
+}
+
+.cell__glyph--pop > * {
+  opacity: 1;
+}
+
 .cell__preview-glyph,
 .cell__x-icon,
 .cell__miss-icon {

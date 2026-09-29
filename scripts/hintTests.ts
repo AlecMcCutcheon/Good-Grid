@@ -106,7 +106,7 @@ assert(boardSource.includes('walkthroughPreviewX={isWalkthrough && previewX}'), 
 const cellSource = readFileSync(new URL('../src/components/Cell.tsx', import.meta.url), 'utf8')
 assert(cellSource.includes('onDoubleClick={(event) =>') && cellSource.includes('onDoubleClick()') && cellSource.includes('event.detail !== 2') && !cellSource.includes('setTimeout'), 'Cat placement should use the native double-click event without delaying single clicks')
 assert(cellSource.includes('now - lastContextClick.current < 450') && cellSource.includes('onTemporaryCatClick()'), 'Double-right-click must toggle a temporary cat preview')
-assert(cellSource.includes('temporaryCatMark') && cellSource.includes('TemporaryNoteIcon'), 'Ghost-cat auto-fill must reuse the normal temporary note icon')
+assert(cellSource.includes('temporaryCatMark') && cellSource.includes('cell__temporary-glyph cell__x-icon--draw'), 'Ghost-cat auto-fill must reuse the same cyan X marker as temporary notes')
 assert(boardSource.includes('const temporaryCatMark = temporaryCatXSet.has(k) && state === \'empty\''), 'Ghost-cat previews should use the exact same auto-filled cells as cat placements')
 const iconSource = readFileSync(new URL('../src/components/Icons.tsx', import.meta.url), 'utf8')
 assert(iconSource.includes('export function SmileIcon') && iconSource.includes('export function FrownIcon') && iconSource.includes('export function TemporarySmileIcon'), 'Found, incorrect, and temporary faces must use custom SVG icon components')

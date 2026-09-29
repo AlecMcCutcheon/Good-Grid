@@ -55,8 +55,10 @@ for (const difficulty of ['easy', 'medium', 'hard', 'extra-hard'] as const) {
   assert(seed === levelSeedFor(imported!, difficulty), `${difficulty} seed should be stable after code import`)
   const size = levelSizeFor(profile, difficulty)
   assert(size === levelSizeFor(imported!, difficulty), `${difficulty} size should be deterministic`)
-  const first = generateLevel({ difficulty, size, seed })
-  const second = generateLevel({ difficulty, size, seed })
+  // Pin a generous time budget: wall-clock cutoffs can make attempt counts
+  // vary between runs on big boards, so force full determinism here.
+  const first = generateLevel({ difficulty, size, seed, timeBudgetMs: 30_000 })
+  const second = generateLevel({ difficulty, size, seed, timeBudgetMs: 30_000 })
   assert(first.level.size === second.level.size, `${difficulty} board sizes should be reproducible`)
   assert(JSON.stringify(first.level.cells) === JSON.stringify(second.level.cells), `${difficulty} boards should be reproducible from profile seed`)
   assert(JSON.stringify(first.level.solution) === JSON.stringify(second.level.solution), `${difficulty} solutions should be reproducible from profile seed`)

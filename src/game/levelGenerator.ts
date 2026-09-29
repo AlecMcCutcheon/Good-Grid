@@ -109,15 +109,15 @@ function rungFor(tier: Difficulty, size: number): number {
  */
 const TIER_SIZE: Record<Difficulty, number> = {
   easy: 7,
-  medium: 7,
+  medium: 8,
   hard: 10,
-  'extra-hard': 10,
+  'extra-hard': 11,
 }
 
 /** How far size may drift from the tier default. */
 const TIER_SIZE_SPREAD: Record<Difficulty, number> = {
   easy: 1,
-  medium: 2,
+  medium: 1,
   hard: 1,
   'extra-hard': 0,
 }
@@ -214,11 +214,9 @@ function carveTowardSolvable(
   board: Board,
   maxMoves: number,
   rng: () => number = Math.random,
-  timeBudgetMs: number = 400,
 ): Board | null {
   const cells: Board = board.map((row) => row.map((c) => ({ ...c })))
   const size = cells.length
-  const deadline = performance.now() + timeBudgetMs
 
   const ORTHO: [number, number][] = [
     [-1, 0],
@@ -329,8 +327,6 @@ function carveTowardSolvable(
   const maxKicks = 6
 
   for (let move = 0; move < maxMoves; move++) {
-    if ((move & 7) === 0 && performance.now() > deadline) return null
-
     const moves = candidateMoves()
     if (moves.length === 0) return null
 
@@ -418,11 +414,9 @@ function hardenToTier(
   target: number,
   maxMoves: number,
   rng: () => number,
-  timeBudgetMs: number = 500,
 ): { board: Board; solve: SolveResult } | null {
   const cells: Board = board.map((row) => row.map((c) => ({ ...c })))
   const size = cells.length
-  const deadline = performance.now() + timeBudgetMs
   const transferBudget = size
   let transfers = 0
 
@@ -434,7 +428,6 @@ function hardenToTier(
   let stalls = 0
 
   for (let move = 0; move < maxMoves; move++) {
-    if (performance.now() > deadline) return null
     const sizes = new Map<number, number>()
     for (const row of cells) {
       for (const cell of row) {
@@ -543,8 +536,8 @@ export function generateLevel(options: GenerateOptions): {
   // Larger Hard and Extra Hard boards have lower carve hit-rates; give them
   // longer before choosing a truthful lower-tier fallback.
   const timeBudgetMs = options.timeBudgetMs ?? (
-    tier === 'extra-hard' && size >= 11 ? 6000 :
-      (tier === 'hard' || tier === 'extra-hard') && size >= 10 ? 4000 : 2000
+    tier === 'extra-hard' ? 12000 :
+      tier === 'hard' && size >= 10 ? 4000 : 2000
   )
   const seed = options.seed ?? Math.floor(Math.random() * 2 ** 31)
 
@@ -604,7 +597,7 @@ export function generateLevel(options: GenerateOptions): {
       // No direct winner: CARVE candidates in promise order until one
       // reaches solvable. Failing all of them is required to lose attempt.
       for (let ci = 0; ci < pool.length; ci++) {
-        const carved = carveTowardSolvable(pool[ci].board, 4 * size, rng, 130)
+        const carved = carveTowardSolvable(pool[ci].board, 4 * size, rng)
         if (!carved) continue
         const cl = solveByLogic(carved)
         if (cl.solved && boardCoherent(carved)) {
@@ -647,20 +640,7 @@ export function generateLevel(options: GenerateOptions): {
     let finalLogic = logic
     const rung = rungFor(tier, size)
     if (!gradeMatches(logic, tier, size).ok) {
-      const hardenBudget = Math.min(
-        500,
-        timeBudgetMs - (performance.now() - started),
-      )
-      if (hardenBudget < 80) {
-        attempts.push({
-          index: attempt,
-          ok: false,
-          reason: 'time budget exhausted before harden',
-          ms: performance.now() - attemptStart,
-        })
-        continue
-      }
-      const hardened = hardenToTier(board, rung, 4 * size, rng, hardenBudget)
+      const hardened = hardenToTier(board, rung, 4 * size, rng)
       if (!hardened) {
         attempts.push({
           index: attempt,

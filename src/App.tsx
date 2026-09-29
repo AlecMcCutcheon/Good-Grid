@@ -7,6 +7,7 @@ import { nextHint, type HintStep } from './game/hints'
 import { buildWalkthrough } from './game/walkthrough'
 import type { WalkthroughStep } from './game/walkthrough'
 import { Board } from './components/Board'
+import { REVEAL_TOTAL_MS } from './components/Cell'
 import { Controls } from './components/Controls'
 import { RuleCards } from './components/RuleCards'
 import { DevPanel } from './components/DevPanel'
@@ -16,6 +17,8 @@ import { applyMarkDrag } from './game/markDrag'
 
 const key = (row: number, col: number) => `${row},${col}`
 const MAX_HEARTS = 3
+
+type RevealWave = { origin: Position; positions: Position[]; nonce: number }
 
 function readSavedProfile(): PlayerProfile {
   try {
@@ -55,6 +58,8 @@ export default function App() {
   const [temporaryMarks, setTemporaryMarks] = useState<Set<string>>(new Set())
   const [temporaryCats, setTemporaryCats] = useState<Set<string>>(new Set())
   const [misses, setMisses] = useState<Set<string>>(new Set())
+  const [revealWave, setRevealWave] = useState<RevealWave | null>(null)
+  const revealWaveTimer = useRef<number | null>(null)
   const [history, setHistory] = useState<Snapshot[]>([])
   const [devMode, setDevMode] = useState(false)
   const [showSolution, setShowSolution] = useState(false)
@@ -235,7 +240,9 @@ export default function App() {
   }, [cats, pencilMarks, temporaryMarks, temporaryCats, misses, hearts])
 
   const undo = useCallback(() => {
-    if (won || hearts <= 0) return
+    // Undo restores hearts too: it rewinds the board to the last snapshot,
+    // including a lost heart from an incorrect guess after game over.
+    if (won) return
     setHistory((previous) => {
       if (previous.length === 0) return previous
       const snapshot = previous[previous.length - 1]
@@ -329,7 +336,7 @@ export default function App() {
   }, [misses, cats, temporaryMarks, temporaryCats, pushHistory])
 
   const handleMarkDrag = useCallback((positions: Position[], temporary: boolean, erase: boolean) => {
-    if (won || hearts <= 0) return
+    if (won) return
     const currentTarget = temporary ? temporaryMarks : pencilMarks
     const startPosition = positions[0]
     const eraseExisting = startPosition
@@ -395,7 +402,7 @@ export default function App() {
     if (
       !level ||
       cats.some((cat) => cat.row === row && cat.col === col) ||
-      misses.has(mark) || pencilMarks.has(mark) || hearts <= 0
+      misses.has(mark) || pencilMarks.has(mark)
     ) return
 
     pushHistory()
@@ -452,9 +459,13 @@ export default function App() {
       return
     }
 
-    const autoFilled = new Set(
-      getAutoFilledPositions(level.cells, { row, col }).map((pos) => key(pos.row, pos.col)),
-    )
+    const autoFilledList = getAutoFilledPositions(level.cells, { row, col })
+    const autoFilled = new Set(autoFilledList.map((pos) => key(pos.row, pos.col)))
+    // Auto-fill Xs draw sequentially, radiating outward from the smiley.
+    const nextNonce = (revealWave?.nonce ?? 0) + 1
+    setRevealWave({ origin: { row, col }, positions: autoFilledList, nonce: nextNonce })
+    if (revealWaveTimer.current !== null) window.clearTimeout(revealWaveTimer.current)
+    revealWaveTimer.current = window.setTimeout(() => setRevealWave(null), REVEAL_TOTAL_MS + 250)
     const catKeys = new Set(cats.map((cat) => key(cat.row, cat.col)))
     for (const catKey of catKeys) autoFilled.delete(catKey)
     autoFilled.delete(mark)
@@ -488,7 +499,7 @@ export default function App() {
     setWalkthroughIndex(null)
     setWalkthroughRevealCount(0)
     setShowSolution(false)
-  }, [level, cats, misses, hearts, pushHistory])
+  }, [level, cats, misses, hearts, pushHistory, revealWave])
 
   const toggleWalkthrough = useCallback(() => {
     const next = !showSolution
@@ -535,6 +546,7 @@ export default function App() {
             board={level.cells}
             cats={cats}
             marks={pencilMarks}
+            revealWave={revealWave}
             temporaryMarks={temporaryMarks}
             temporaryCats={temporaryCats}
             misses={misses}
