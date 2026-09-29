@@ -35,7 +35,7 @@ export function Controls({
           <select
             id="difficulty"
             className="select select--difficulty"
-            style={{ width: `calc(${difficulty.replace('-', ' ').length}ch + 70px)` }}
+            style={{ width: `calc(${difficulty.replace('-', ' ').length}ch + 96px)` }}
             value={difficulty}
             onChange={(event) => onDifficultyChange(event.target.value as Difficulty)}
             aria-label="Difficulty"

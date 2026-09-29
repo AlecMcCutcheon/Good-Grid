@@ -802,6 +802,7 @@ select.select--difficulty {
 .app__board-wrap {
   position: relative;
   flex: 0 0 auto;
+  margin-inline: auto;
   padding: 14px;
   background: var(--bg);
   border: none;
@@ -1210,7 +1211,7 @@ select.select--difficulty {
   }
 
   .difficulty-select {
-    max-width: min(100%, 170px);
+    max-width: min(100%, 190px);
   }
 
   .controls__completed {
