@@ -36,6 +36,32 @@ assert(
 const laterWrongX = nextHint(level.cells, foundCats, new Set([key(solution[1].row, solution[1].col)]), solution)
 assert(laterWrongX?.kind === 'wrong-mark', 'A real X on a later required cell should be prioritized')
 
+// Automatic row/column/adjacency notes around already-found cats must preserve
+// the real completion; test larger boards where those accumulated marks are numerous.
+const autofillLevel = generateLevel({ size: 11, difficulty: 'easy' as Difficulty, seed: 11015 }).level
+for (let catCount = 1; catCount < autofillLevel.size; catCount++) {
+  const knownCats = autofillLevel.solution.slice(0, catCount)
+  const knownCatKeys = new Set(knownCats.map((position) => key(position.row, position.col)))
+  const automaticMarks = new Set(
+    knownCats.flatMap((cat) => getAutoFilledPositions(autofillLevel.cells, cat)
+      .filter((position) => !knownCatKeys.has(key(position.row, position.col)))
+      .map((position) => key(position.row, position.col))),
+  )
+  const next = nextHint(autofillLevel.cells, knownCats, automaticMarks, autofillLevel.solution)
+  assert(next?.kind !== 'contradiction', `Automatic marks around ${catCount} found cats must preserve the valid solution`)
+}
+
+const staleCatMark = nextHint(level.cells, foundCats, new Set([key(solution[0].row, solution[0].col)]), solution)
+assert(staleCatMark?.kind !== 'contradiction', 'A stale X hidden underneath an already-found cat must not create a false contradiction')
+const hintsIgnoreFoundCatMarks = nextHint(level.cells, foundCats, new Set())
+assert(
+  staleCatMark?.kind === hintsIgnoreFoundCatMarks?.kind &&
+    staleCatMark?.technique === hintsIgnoreFoundCatMarks?.technique &&
+    staleCatMark?.placement?.row === hintsIgnoreFoundCatMarks?.placement?.row &&
+    staleCatMark?.placement?.col === hintsIgnoreFoundCatMarks?.placement?.col,
+  'Hint deductions should ignore an X on a cell occupied by a found cat',
+)
+
 const autoFillProbe = Array.from({ length: 5 }, (_, row) =>
   Array.from({ length: 5 }, (_, col) => ({ row, col, region: row * 5 + col })),
 )

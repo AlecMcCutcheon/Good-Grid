@@ -234,13 +234,17 @@ export function nextHint(
   solution?: Position[],
 ): HintStep | null {
   const catKeys = new Set(foundCats.map(key))
+  // A placed smile takes precedence over any stale X saved on the same cell.
+  // The UI hides that X under the face, so it must not make completion checks
+  // report a false contradiction or appear among marks to review.
+  const activePencilMarks = new Set([...pencilMarks].filter((mark) => !catKeys.has(mark)))
 
   // A real X placed on the hidden unique solution is the first kind of mistake
   // to correct. The response identifies only the bad mark, never what belongs
   // there. This is especially useful before the player has found any cats.
   const solutionKeys = solution ? new Set(solution.map(key)) : null
-  for (const mark of pencilMarks) {
-    if (catKeys.has(mark) || !solutionKeys?.has(mark)) continue
+  for (const mark of activePencilMarks) {
+    if (!solutionKeys?.has(mark)) continue
     const [row, col] = mark.split(',').map(Number)
     if (!Number.isInteger(row) || !board[row]?.[col]) continue
     const wrongMark = { row, col }
@@ -254,11 +258,10 @@ export function nextHint(
 
   // A player's X that covers a logically forced placement is the most useful
   // correction when no solution is supplied. Establish the forced placement using all their OTHER real Xs.
-  for (const mark of pencilMarks) {
-    if (catKeys.has(mark)) continue
+  for (const mark of activePencilMarks) {
     const [row, col] = mark.split(',').map(Number)
     if (!Number.isInteger(row) || !board[row]?.[col]) continue
-    const otherMarks = new Set(pencilMarks)
+    const otherMarks = new Set(activePencilMarks)
     otherMarks.delete(mark)
     const next = deductionHint(board, foundCats, otherMarks)
     if (next?.kind === 'placement' && next.placement && key(next.placement) === mark) {
@@ -271,11 +274,9 @@ export function nextHint(
     }
   }
 
-  if (!hasCompletion(board, foundCats, pencilMarks)) {
+  if (!hasCompletion(board, foundCats, activePencilMarks)) {
     if (solutionKeys) {
-      const invalidMarks = [...pencilMarks].filter((mark) =>
-        !catKeys.has(mark) && solutionKeys.has(mark),
-      )
+      const invalidMarks = [...activePencilMarks].filter((mark) => solutionKeys.has(mark))
       if (invalidMarks.length > 0) {
         const mark = invalidMarks[0]
         const [row, col] = mark.split(',').map(Number)
@@ -288,9 +289,8 @@ export function nextHint(
         }
       }
     }
-    for (const mark of pencilMarks) {
-      if (catKeys.has(mark)) continue
-      const withoutMark = new Set(pencilMarks)
+    for (const mark of activePencilMarks) {
+      const withoutMark = new Set(activePencilMarks)
       withoutMark.delete(mark)
       if (hasCompletion(board, foundCats, withoutMark)) {
         const [row, col] = mark.split(',').map(Number)
@@ -307,7 +307,7 @@ export function nextHint(
       kind: 'contradiction', technique: 'correct-an-x',
       title: 'Review the current board marks',
       message: 'The current X marks leave no complete arrangement under the puzzle rules. Recheck a mark or ask for a hint again after correcting one.',
-      focus: [...pencilMarks].map((mark) => {
+      focus: [...activePencilMarks].map((mark) => {
         const [row, col] = mark.split(',').map(Number)
         return { row, col }
       }),
@@ -315,5 +315,5 @@ export function nextHint(
     }
   }
 
-  return deductionHint(board, foundCats, pencilMarks)
+  return deductionHint(board, foundCats, activePencilMarks)
 }
